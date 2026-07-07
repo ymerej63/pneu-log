@@ -40,6 +40,11 @@
     background:var(--asphalt-2);display:flex;align-items:center;justify-content:center;
     color:var(--chalk);cursor:pointer;flex-shrink:0;
   }
+  header .header-delete{
+    width:34px;height:34px;border-radius:8px;border:1px solid #4a2420;
+    background:var(--asphalt-2);display:flex;align-items:center;justify-content:center;
+    color:#FF6B5A;cursor:pointer;flex-shrink:0;font-size:16px;
+  }
   header h1{
     font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:1.5px;
     font-size:20px;font-weight:600;margin:0;flex:1;
@@ -506,10 +511,11 @@ async function renderDetail(v){
   v.innerHTML = `
     <header>
       <div class="back" id="det-back">‹</div>
-      <div>
+      <div style="flex:1;min-width:0;">
         <h1>${tire.id}</h1>
         <div class="sub">Enregistré le ${new Date(tire.createdAt).toLocaleDateString('fr-FR')}</div>
       </div>
+      <button class="header-delete" id="delete-tire" title="Supprimer ce pneu">🗑</button>
     </header>
     <main>
       <div class="stat-row">
@@ -525,6 +531,12 @@ async function renderDetail(v){
   `;
   document.getElementById('det-back').onclick = () => go('home');
   document.getElementById('add-session').onclick = () => go('form', { tireKey: tire.key });
+  document.getElementById('delete-tire').onclick = async () => {
+    if(!confirm(`Supprimer définitivement le pneu ${tire.id} et tout son historique (${tire.sessions.length} roulage${tire.sessions.length>1?'s':''}) ? Cette action est irréversible.`)) return;
+    await deleteTire(tire.key);
+    showToast('Pneu supprimé');
+    go('home');
+  };
 
   const hist = document.getElementById('history');
   if(tire.sessions.length===0){
