@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>PNEU LOG</title>
+<title>SUIVI DE PNEUS</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
@@ -210,6 +210,31 @@ function showToast(msg){
   setTimeout(()=>t.classList.remove('show'), 1800);
 }
 
+// ---------- Beep ----------
+let audioCtx = null;
+function ensureAudio(){
+  try{
+    if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    if(audioCtx.state==='suspended') audioCtx.resume();
+  }catch(e){ /* audio unavailable, ignore */ }
+}
+function playBeep(){
+  if(!audioCtx) return;
+  try{
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = 1800;
+    gain.gain.setValueAtTime(0.001, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.2, audioCtx.currentTime + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.12);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.13);
+  }catch(e){}
+}
+
 // ---------- Storage ----------
 const STORE_PREFIX = 'pneu-log:';
 async function getIndex(){
@@ -266,7 +291,7 @@ function go(view, opts={}){ state = {...state, ...opts, view}; render(); }
 async function renderHome(v){
   v.innerHTML = `
     <header>
-      <h1>Pneu Log</h1>
+      <h1>Suivi de Pneus</h1>
     </header>
     <main id="home-main"><p style="color:var(--chalk-dim);font-family:'IBM Plex Mono',monospace;font-size:13px;">Chargement…</p></main>
     <button class="btn btn-primary fab" id="scan-fab">＋ &nbsp;Scanner un pneu</button>
@@ -341,6 +366,7 @@ function handleDetected(result){
   const code = result && result.codeResult && result.codeResult.code;
   if(!code) return;
   detectionLocked = true;
+  playBeep();
   onBarcodeFound(code);
 }
 
@@ -358,6 +384,7 @@ function showCameraError(msg){
 }
 
 function renderScan(v){
+  ensureAudio();
   v.innerHTML = `
     <div class="scan-wrap">
       <div class="scan-header">
