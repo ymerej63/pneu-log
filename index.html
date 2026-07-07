@@ -150,10 +150,14 @@
   .stat b{display:block;font-family:'IBM Plex Mono',monospace;font-size:20px;color:var(--flag);}
   .stat span{font-size:10px;color:var(--chalk-dim);text-transform:uppercase;letter-spacing:.6px;}
 
-  .session{border-left:2px solid var(--line);padding:2px 0 20px 16px;position:relative;}
+  .session{border-left:2px solid var(--line);padding:2px 0 14px 16px;position:relative;cursor:pointer;}
   .session::before{content:'';position:absolute;left:-5px;top:4px;width:9px;height:9px;border-radius:50%;background:var(--flag);}
-  .session .s-num{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--chalk-dim);}
-  .session .s-title{font-family:'Oswald',sans-serif;font-weight:600;font-size:15px;margin:2px 0 6px;}
+  .session .s-num{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--chalk-dim);display:flex;justify-content:space-between;align-items:center;}
+  .session .s-chevron{transition:transform .2s;font-size:13px;}
+  .session.open .s-chevron{transform:rotate(180deg);}
+  .session .s-title{font-family:'Oswald',sans-serif;font-weight:600;font-size:15px;margin:2px 0 0;}
+  .session .s-detail{display:none;margin-top:8px;}
+  .session.open .s-detail{display:block;}
   .session .s-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;font-size:13px;color:var(--chalk-dim);margin-bottom:6px;}
   .session .s-grid b{color:var(--chalk);font-weight:500;}
   .session .s-note{font-size:13px;color:var(--chalk-dim);line-height:1.4;}
@@ -536,15 +540,25 @@ async function renderDetail(v){
     if(s.km) meta.push(`<div><b>${s.km}</b> km</div>`);
     if(s.pressureCold || s.pressureHot) meta.push(`<div>Pression : <b>${s.pressureCold||'—'} → ${s.pressureHot||'—'} bar</b></div>`);
     if(s.temp) meta.push(`<div>Temp. pneu : <b>${s.temp}°C</b></div>`);
+    const sInfo = posInfo(s.position);
     return `
-      <div class="session">
-        <div class="s-num">ROULAGE #${num} — ${fmtDate(s.date)}</div>
-        <div class="s-title">${s.location || 'Lieu non renseigné'} ${s.sessionType ? '· '+s.sessionType : ''}</div>
-        <div class="s-grid">${meta.join('')}</div>
-        ${s.setup ? `<div class="s-note"><b>Réglages :</b> ${escapeHtml(s.setup)}</div>` : ''}
-        ${s.wear ? `<div class="s-note" style="margin-top:4px;"><b>Usure :</b> ${escapeHtml(s.wear)}</div>` : ''}
+      <div class="session" data-idx="${i}">
+        <div class="s-num">ROULAGE #${num} — ${fmtDate(s.date)} <span class="s-chevron">▾</span></div>
+        <div class="s-title">${s.location || 'Lieu non renseigné'} ${s.sessionType ? '· '+s.sessionType : ''}
+          ${s.position ? `<span class="pos-badge" style="--pos-color:${sInfo.color};margin-left:6px;">${sInfo.label}</span>` : ''}
+        </div>
+        <div class="s-detail">
+          <div class="s-grid">${meta.join('')}</div>
+          ${s.setup ? `<div class="s-note"><b>Réglages :</b> ${escapeHtml(s.setup)}</div>` : ''}
+          ${s.wear ? `<div class="s-note" style="margin-top:4px;"><b>Usure :</b> ${escapeHtml(s.wear)}</div>` : ''}
+          ${!s.laps && !s.km && !s.pressureCold && !s.pressureHot && !s.temp && !s.setup && !s.wear ? `<div class="s-note">Aucun détail supplémentaire renseigné.</div>` : ''}
+        </div>
       </div>`;
   }).join('');
+  hist.querySelectorAll('.session').forEach(el=>{
+    el.querySelector('.s-num').onclick = () => el.classList.toggle('open');
+    el.querySelector('.s-title').onclick = () => el.classList.toggle('open');
+  });
 }
 function escapeHtml(str){
   const d = document.createElement('div'); d.textContent = str; return d.innerHTML;
@@ -628,6 +642,7 @@ async function renderForm(v){
       date: document.getElementById('f-date').value || todayStr(),
       location: document.getElementById('f-loc').value.trim(),
       sessionType: document.getElementById('f-type').value,
+      position: tire.position || null,
       laps: document.getElementById('f-laps').value,
       km: document.getElementById('f-km').value,
       pressureCold: document.getElementById('f-pcold').value,
