@@ -195,24 +195,25 @@ function showToast(msg){
 }
 
 // ---------- Storage ----------
+const STORE_PREFIX = 'pneu-log:';
 async function getIndex(){
   try{
-    const r = await window.storage.get('tire-index');
-    return r ? JSON.parse(r.value) : [];
+    const raw = localStorage.getItem(STORE_PREFIX+'tire-index');
+    return raw ? JSON.parse(raw) : [];
   }catch(e){ return []; }
 }
 async function saveIndex(list){
-  try{ await window.storage.set('tire-index', JSON.stringify(list)); }
+  try{ localStorage.setItem(STORE_PREFIX+'tire-index', JSON.stringify(list)); }
   catch(e){ console.error('index save failed', e); }
 }
 async function getTire(key){
   try{
-    const r = await window.storage.get(key);
-    return r ? JSON.parse(r.value) : null;
+    const raw = localStorage.getItem(STORE_PREFIX+key);
+    return raw ? JSON.parse(raw) : null;
   }catch(e){ return null; }
 }
 async function saveTire(key, tire){
-  try{ await window.storage.set(key, JSON.stringify(tire)); return true; }
+  try{ localStorage.setItem(STORE_PREFIX+key, JSON.stringify(tire)); return true; }
   catch(e){ console.error('tire save failed', e); return false; }
 }
 async function findOrCreateTire(rawId){
@@ -416,7 +417,30 @@ async function onBarcodeFound(rawValue){
   stopCamera();
   const { tire, isNew } = await findOrCreateTire(rawValue);
   showToast(isNew ? `Nouveau pneu : ${rawValue}` : `Pneu retrouvé : ${rawValue}`);
-  go('detail', { tireKey: tire.key });
+  showPositionPicker(tire);
+}
+
+function showPositionPicker(tire){
+  const wrap = document.querySelector('.scan-wrap');
+  if(!wrap){ go('detail', { tireKey: tire.key }); return; }
+  const sheet = document.createElement('div');
+  sheet.className = 'manual-sheet';
+  sheet.innerHTML = `
+    <label>Position sur le véhicule</label>
+    <div class="chips" id="pp-chips">
+      ${POSITIONS.map(p=>`<button class="chip ${tire.position===p.id?'active':''}" data-p="${p.id}" style="${tire.position===p.id?`background:${p.color};border-color:${p.color}`:''}">${p.label}</button>`).join('')}
+    </div>
+    <button class="btn btn-ghost" id="pp-skip" style="margin-top:14px;">Passer sans choisir</button>
+  `;
+  wrap.appendChild(sheet);
+  sheet.querySelectorAll('#pp-chips .chip').forEach(c=>{
+    c.onclick = async () => {
+      tire.position = c.dataset.p;
+      await saveTire(tire.key, tire);
+      go('detail', { tireKey: tire.key });
+    };
+  });
+  document.getElementById('pp-skip').onclick = () => go('detail', { tireKey: tire.key });
 }
 
 // ---------- Detail ----------
