@@ -582,8 +582,12 @@ function escapeHtml(str){
 async function renderForm(v){
   const tire = await getTire(state.tireKey);
   if(!tire){ go('home'); return; }
-  const prefillSession = state.prefillSession || '';
-  const prefillLocation = state.prefillLocation || '';
+  const editSessionId = state.editSessionId || null;
+  state.editSessionId = null;
+  const editingSession = editSessionId ? tire.sessions.find(x=>x.id===editSessionId) : null;
+
+  const prefillSession = editingSession ? editingSession.sessionType : (state.prefillSession || '');
+  const prefillLocation = editingSession ? editingSession.location : (state.prefillLocation || '');
   state.prefillSession = null;
   state.prefillLocation = null;
 
@@ -595,13 +599,13 @@ async function renderForm(v){
     <header>
       <div class="back" id="form-back">‹</div>
       <div>
-        <h1>Nouveau roulage</h1>
+        <h1>${editingSession ? 'Modifier le roulage' : 'Nouveau roulage'}</h1>
         <div class="sub">${tire.id}</div>
       </div>
     </header>
     <main class="form-sheet">
       <label>Date</label>
-      <input type="date" id="f-date" value="${todayStr()}">
+      <input type="date" id="f-date" value="${editingSession ? editingSession.date : todayStr()}">
 
       <label>Lieu / événement</label>
       <input type="text" id="f-loc" placeholder="Ex. Charade, La Chatre…" value="${escapeHtml(prefillLocation)}">
@@ -614,33 +618,33 @@ async function renderForm(v){
       <div class="row2">
         <div>
           <label>Tours</label>
-          <input type="number" id="f-laps" inputmode="numeric" placeholder="0">
+          <input type="number" id="f-laps" inputmode="numeric" placeholder="0" value="${editingSession && editingSession.laps ? editingSession.laps : ''}">
         </div>
         <div>
           <label>Distance (km)</label>
-          <input type="number" id="f-km" inputmode="decimal" placeholder="0">
+          <input type="number" id="f-km" inputmode="decimal" placeholder="0" value="${editingSession && editingSession.km ? editingSession.km : ''}">
         </div>
       </div>
 
       <div class="row2">
         <div>
           <label>Pression à froid (bar)</label>
-          <input type="number" step="0.1" id="f-pcold" inputmode="decimal" placeholder="1.8">
+          <input type="number" step="0.1" id="f-pcold" inputmode="decimal" placeholder="1.8" value="${editingSession && editingSession.pressureCold ? editingSession.pressureCold : ''}">
         </div>
         <div>
           <label>Pression à chaud (bar)</label>
-          <input type="number" step="0.1" id="f-phot" inputmode="decimal" placeholder="2.1">
+          <input type="number" step="0.1" id="f-phot" inputmode="decimal" placeholder="2.1" value="${editingSession && editingSession.pressureHot ? editingSession.pressureHot : ''}">
         </div>
       </div>
 
       <label>Température pneu (°C)</label>
-      <input type="number" id="f-temp" inputmode="numeric" placeholder="Ex. 65">
+      <input type="number" id="f-temp" inputmode="numeric" placeholder="Ex. 65" value="${editingSession && editingSession.temp ? editingSession.temp : ''}">
 
       <label>Réglages (carrossage, parallélisme…)</label>
-      <textarea id="f-setup" placeholder="Ex. carrossage -2.5°, parallélisme +1mm"></textarea>
+      <textarea id="f-setup" placeholder="Ex. carrossage -2.5°, parallélisme +1mm">${editingSession ? escapeHtml(editingSession.setup||'') : ''}</textarea>
 
       <label>Notes d'usure</label>
-      <textarea id="f-wear" placeholder="Ex. usure épaule extérieure, léger graining"></textarea>
+      <textarea id="f-wear" placeholder="Ex. usure épaule extérieure, léger graining">${editingSession ? escapeHtml(editingSession.wear||'') : ''}</textarea>
 
       <div class="form-actions">
         <button class="btn btn-ghost" id="form-cancel">Annuler</button>
@@ -652,11 +656,11 @@ async function renderForm(v){
   document.getElementById('form-cancel').onclick = () => go('detail', { tireKey: tire.key });
   document.getElementById('form-save').onclick = async () => {
     const session = {
-      id: Date.now(),
+      id: editingSession ? editingSession.id : Date.now(),
       date: document.getElementById('f-date').value || todayStr(),
       location: document.getElementById('f-loc').value.trim(),
       sessionType: document.getElementById('f-type').value,
-      position: tire.position || null,
+      position: editingSession ? editingSession.position : (tire.position || null),
       laps: document.getElementById('f-laps').value,
       km: document.getElementById('f-km').value,
       pressureCold: document.getElementById('f-pcold').value,
@@ -665,9 +669,14 @@ async function renderForm(v){
       setup: document.getElementById('f-setup').value.trim(),
       wear: document.getElementById('f-wear').value.trim(),
     };
-    tire.sessions.push(session);
+    if(editingSession){
+      const idx = tire.sessions.findIndex(x=>x.id===editingSession.id);
+      if(idx>-1) tire.sessions[idx] = session;
+    } else {
+      tire.sessions.push(session);
+    }
     const ok = await saveTire(tire.key, tire);
-    showToast(ok ? 'Roulage enregistré' : "Erreur d'enregistrement");
+    showToast(ok ? (editingSession ? 'Roulage modifié' : 'Roulage enregistré') : "Erreur d'enregistrement");
     go('detail', { tireKey: tire.key });
   };
 }
