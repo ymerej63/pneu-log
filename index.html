@@ -162,6 +162,13 @@
   .session .s-grid b{color:var(--chalk);font-weight:500;}
   .session .s-note{font-size:13px;color:var(--chalk-dim);line-height:1.4;}
   .session .s-note b{color:var(--chalk);font-weight:500;}
+  .s-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px;}
+  .s-action-btn{
+    font-family:'Oswald',sans-serif;font-size:11px;letter-spacing:.5px;text-transform:uppercase;
+    font-weight:600;background:var(--asphalt-3);border:1px solid var(--line);color:var(--chalk-dim);
+    padding:7px 12px;border-radius:7px;cursor:pointer;
+  }
+  .s-action-delete{color:#FF6B5A;border-color:#4a2420;}
 
   .toast{
     position:fixed;bottom:100px;left:50%;transform:translateX(-50%);
@@ -488,7 +495,6 @@ function showPositionPicker(tire){
 async function renderDetail(v){
   const tire = await getTire(state.tireKey);
   if(!tire){ go('home'); return; }
-  const info = posInfo(tire.position);
   const totalLaps = tire.sessions.reduce((s,x)=>s+(Number(x.laps)||0),0);
   const totalKm = tire.sessions.reduce((s,x)=>s+(Number(x.km)||0),0);
 
@@ -501,11 +507,6 @@ async function renderDetail(v){
       </div>
     </header>
     <main>
-      <label>Position sur le véhicule</label>
-      <div class="chips" id="pos-chips">
-        ${POSITIONS.map(p=>`<button class="chip ${tire.position===p.id?'active':''}" data-p="${p.id}" style="${tire.position===p.id?`background:${p.color};border-color:${p.color}`:''}">${p.label}</button>`).join('')}
-      </div>
-
       <div class="stat-row">
         <div class="stat"><b>${tire.sessions.length}</b><span>Roulages</span></div>
         <div class="stat"><b>${totalLaps}</b><span>Tours</span></div>
@@ -519,13 +520,6 @@ async function renderDetail(v){
   `;
   document.getElementById('det-back').onclick = () => go('home');
   document.getElementById('add-session').onclick = () => go('form', { tireKey: tire.key });
-  v.querySelectorAll('#pos-chips .chip').forEach(c=>{
-    c.onclick = async () => {
-      tire.position = tire.position===c.dataset.p ? null : c.dataset.p;
-      await saveTire(tire.key, tire);
-      renderDetail(v);
-    };
-  });
 
   const hist = document.getElementById('history');
   if(tire.sessions.length===0){
@@ -552,12 +546,32 @@ async function renderDetail(v){
           ${s.setup ? `<div class="s-note"><b>Réglages :</b> ${escapeHtml(s.setup)}</div>` : ''}
           ${s.wear ? `<div class="s-note" style="margin-top:4px;"><b>Usure :</b> ${escapeHtml(s.wear)}</div>` : ''}
           ${!s.laps && !s.km && !s.pressureCold && !s.pressureHot && !s.temp && !s.setup && !s.wear ? `<div class="s-note">Aucun détail supplémentaire renseigné.</div>` : ''}
+          <div class="s-actions">
+            <button class="s-action-btn" data-action="edit" data-sid="${s.id}">Modifier</button>
+            <button class="s-action-btn s-action-delete" data-action="delete" data-sid="${s.id}">Supprimer</button>
+          </div>
         </div>
       </div>`;
   }).join('');
   hist.querySelectorAll('.session').forEach(el=>{
     el.querySelector('.s-num').onclick = () => el.classList.toggle('open');
     el.querySelector('.s-title').onclick = () => el.classList.toggle('open');
+  });
+  hist.querySelectorAll('[data-action="edit"]').forEach(btn=>{
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      go('form', { tireKey: tire.key, editSessionId: Number(btn.dataset.sid) });
+    };
+  });
+  hist.querySelectorAll('[data-action="delete"]').forEach(btn=>{
+    btn.onclick = async (e) => {
+      e.stopPropagation();
+      if(!confirm('Supprimer ce roulage ? Cette action est définitive.')) return;
+      tire.sessions = tire.sessions.filter(x=>x.id !== Number(btn.dataset.sid));
+      const ok = await saveTire(tire.key, tire);
+      showToast(ok ? 'Roulage supprimé' : "Erreur de suppression");
+      renderDetail(v);
+    };
   });
 }
 function escapeHtml(str){
