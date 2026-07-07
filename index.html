@@ -227,6 +227,11 @@ async function saveTire(key, tire){
   try{ localStorage.setItem(STORE_PREFIX+key, JSON.stringify(tire)); return true; }
   catch(e){ console.error('tire save failed', e); return false; }
 }
+async function deleteTire(key){
+  try{ localStorage.removeItem(STORE_PREFIX+key); }catch(e){}
+  const idx = await getIndex();
+  await saveIndex(idx.filter(k=>k!==key));
+}
 async function findOrCreateTire(rawId){
   const key = sanitizeKey(rawId);
   let tire = await getTire(key);
