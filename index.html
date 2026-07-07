@@ -6,6 +6,7 @@
 <title>PNEU LOG</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
 <style>
   :root{
     --asphalt:#121417;
@@ -101,7 +102,12 @@
     display:flex;align-items:center;gap:12px;padding:16px;
     background:linear-gradient(180deg,rgba(0,0,0,.7),transparent);
   }
-  video{flex:1;width:100%;height:100%;object-fit:cover;}
+  #scanner-container{position:absolute;inset:0;overflow:hidden;background:#000;}
+  #scanner-container video, #scanner-container canvas{
+    position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+    min-width:100%;min-height:100%;width:auto;height:auto;
+  }
+  #scanner-container canvas.drawingBuffer{display:none;}
   .viewfinder{
     position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
     width:78%;max-width:340px;height:150px;pointer-events:none;
@@ -177,7 +183,7 @@ const POSITIONS = [
 ];
 const SESSION_TYPES = ['Essai libre','Qualification','Course','Reconnaissance','Test'];
 
-let state = { view: 'home', tireKey: null, filterPos: null, stream: null, scanTimer: null };
+let state = { view: 'home', tireKey: null, filterPos: null, quaggaRunning: false };
 
 function posInfo(id){ return POSITIONS.find(p=>p.id===id) || {label:id||'—', color:'#FF5A1F'}; }
 function sanitizeKey(raw){ return ('t_'+raw).replace(/[^a-zA-Z0-9_.:-]/g,'_').slice(0,190); }
@@ -301,9 +307,34 @@ async function renderHome(v){
 }
 
 // ---------- Scanner ----------
+let detectionLocked = false;
+
 function stopCamera(){
-  if(state.stream){ state.stream.getTracks().forEach(t=>t.stop()); state.stream=null; }
-  if(state.scanTimer){ clearInterval(state.scanTimer); state.scanTimer=null; }
+  if(state.quaggaRunning){
+    try{ Quagga.offDetected(handleDetected); Quagga.stop(); }catch(e){}
+    state.quaggaRunning = false;
+  }
+}
+
+function handleDetected(result){
+  if(detectionLocked) return;
+  const code = result && result.codeResult && result.codeResult.code;
+  if(!code) return;
+  detectionLocked = true;
+  onBarcodeFound(code);
+}
+
+function showCameraError(msg){
+  const wrap = document.querySelector('.scan-wrap');
+  if(!wrap) return;
+  wrap.innerHTML = `
+    <div class="scan-header"><div class="back" id="scan-back-err">‹</div></div>
+    <div class="empty" style="color:#fff;padding-top:120px;">
+      <p>${msg}</p>
+      <button class="btn btn-primary" style="margin-top:16px;max-width:240px;" id="manual-btn2">Saisir manuellement</button>
+    </div>`;
+  document.getElementById('scan-back-err').onclick = () => go('home');
+  document.getElementById('manual-btn2').onclick = showManualEntry;
 }
 
 function renderScan(v){
@@ -313,7 +344,7 @@ function renderScan(v){
         <div class="back" id="scan-back">‹</div>
         <h1 style="font-family:'Oswald';color:#fff;font-size:16px;letter-spacing:1px;text-transform:uppercase;margin:0;">Scanner le pneu</h1>
       </div>
-      <video id="video" autoplay playsinline muted></video>
+      <div id="scanner-container"></div>
       <div class="viewfinder" id="vf">
         <div class="vf-corner tl"></div><div class="vf-corner tr"></div>
         <div class="vf-corner bl"></div><div class="vf-corner br"></div>
@@ -329,40 +360,36 @@ function renderScan(v){
   startCamera();
 }
 
-async function startCamera(){
-  const video = document.getElementById('video');
-  try{
-    const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } });
-    state.stream = stream;
-    video.srcObject = stream;
+function startCamera(){
+  detectionLocked = false;
+  const target = document.getElementById('scanner-container');
 
-    if('BarcodeDetector' in window){
-      let formats = ['code_128','code_39','ean_13','ean_8','upc_a','upc_e','qr_code','codabar','itf'];
-      try{ formats = (await window.BarcodeDetector.getSupportedFormats()).length ? formats : formats; }catch(e){}
-      const detector = new window.BarcodeDetector({ formats });
-      state.scanTimer = setInterval(async ()=>{
-        try{
-          const codes = await detector.detect(video);
-          if(codes && codes.length){
-            const value = codes[0].rawValue;
-            if(value){ onBarcodeFound(value); }
-          }
-        }catch(e){ /* frame not ready yet, ignore */ }
-      }, 350);
-    } else {
-      const hint = document.getElementById('hint');
-      if(hint) hint.querySelector('p').textContent = "Scan auto non supporté par ce navigateur — saisis le code manuellement";
-    }
-  }catch(e){
-    document.querySelector('.scan-wrap').innerHTML = `
-      <div class="scan-header"><div class="back" id="scan-back-err">‹</div></div>
-      <div class="empty" style="color:#fff;padding-top:120px;">
-        <p>Impossible d'accéder à la caméra. Vérifie les autorisations du navigateur, ou saisis le code manuellement.</p>
-        <button class="btn btn-primary" style="margin-top:16px;max-width:240px;" id="manual-btn2">Saisir manuellement</button>
-      </div>`;
-    document.getElementById('scan-back-err').onclick = () => go('home');
-    document.getElementById('manual-btn2').onclick = showManualEntry;
+  if(typeof Quagga === 'undefined'){
+    showCameraError("La librairie de scan n'a pas pu se charger (vérifie ta connexion). Saisis le code manuellement.");
+    return;
   }
+
+  Quagga.init({
+    inputStream: {
+      type: 'LiveStream',
+      target: target,
+      constraints: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+    },
+    locator: { patchSize: 'medium', halfSample: true },
+    numOfWorkers: 2,
+    frequency: 10,
+    decoder: { readers: ['code_128_reader','ean_reader','code_39_reader','codabar_reader','i2of5_reader','upc_reader'] },
+    locate: true,
+  }, function(err){
+    if(err){
+      console.error(err);
+      showCameraError("Impossible d'accéder à la caméra. Vérifie les autorisations du navigateur, ou saisis le code manuellement.");
+      return;
+    }
+    Quagga.start();
+    state.quaggaRunning = true;
+    Quagga.onDetected(handleDetected);
+  });
 }
 
 function showManualEntry(){
@@ -386,7 +413,6 @@ function showManualEntry(){
 }
 
 async function onBarcodeFound(rawValue){
-  if(state.scanTimer){ clearInterval(state.scanTimer); state.scanTimer=null; }
   stopCamera();
   const { tire, isNew } = await findOrCreateTire(rawValue);
   showToast(isNew ? `Nouveau pneu : ${rawValue}` : `Pneu retrouvé : ${rawValue}`);
