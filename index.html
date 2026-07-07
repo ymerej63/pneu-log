@@ -181,7 +181,7 @@ const POSITIONS = [
   {id:'ARD', label:'AR. DROIT', color:'#4CAF7D'},
   {id:'ARG', label:'AR. GAUCHE', color:'#4C9AFF'},
 ];
-const SESSION_TYPES = ['Essai libre','Qualification','Course','Reconnaissance','Test'];
+const SESSION_TYPES = ['EL1','EL2','C1','C2','C3','C4'];
 
 let state = { view: 'home', tireKey: null, filterPos: null, quaggaRunning: false };
 
@@ -288,7 +288,6 @@ async function renderHome(v){
   cards.innerHTML = filtered.map(t=>{
     const info = posInfo(t.position);
     const last = t.sessions[t.sessions.length-1];
-    const totalLaps = t.sessions.reduce((s,x)=>s+(Number(x.laps)||0),0);
     return `
       <div class="card" style="--pos-color:${info.color}" data-key="${t.key}">
         <div class="card-top">
@@ -297,7 +296,6 @@ async function renderHome(v){
         </div>
         <div class="card-meta">
           <span><b>${t.sessions.length}</b> roulage${t.sessions.length>1?'s':''}</span>
-          <span><b>${totalLaps}</b> tours cumulés</span>
           ${last? `<span>dernier : <b>${fmtDate(last.date)}</b></span>` : ''}
         </div>
       </div>`;
@@ -423,6 +421,9 @@ async function onBarcodeFound(rawValue){
 function showPositionPicker(tire){
   const wrap = document.querySelector('.scan-wrap');
   if(!wrap){ go('detail', { tireKey: tire.key }); return; }
+  let selectedPosition = tire.position || null;
+  let selectedSession = null;
+
   const sheet = document.createElement('div');
   sheet.className = 'manual-sheet';
   sheet.innerHTML = `
@@ -430,17 +431,53 @@ function showPositionPicker(tire){
     <div class="chips" id="pp-chips">
       ${POSITIONS.map(p=>`<button class="chip ${tire.position===p.id?'active':''}" data-p="${p.id}" style="${tire.position===p.id?`background:${p.color};border-color:${p.color}`:''}">${p.label}</button>`).join('')}
     </div>
-    <button class="btn btn-ghost" id="pp-skip" style="margin-top:14px;">Passer sans choisir</button>
+
+    <label>Session</label>
+    <div class="chips" id="pp-session-chips">
+      ${SESSION_TYPES.map(s=>`<button class="chip" data-s="${s}">${s}</button>`).join('')}
+      <button class="chip" data-s="AUTRE">AUTRE</button>
+    </div>
+    <input type="text" id="pp-session-custom" placeholder="Nom de la session" style="display:none;margin-top:8px;">
+
+    <label>Compétition / événement</label>
+    <input type="text" id="pp-competition" placeholder="Ex. Course de côte de Chabrières">
+
+    <div class="form-actions">
+      <button class="btn btn-ghost" id="pp-skip">Passer</button>
+      <button class="btn btn-primary" id="pp-continue">Continuer</button>
+    </div>
   `;
   wrap.appendChild(sheet);
+
   sheet.querySelectorAll('#pp-chips .chip').forEach(c=>{
-    c.onclick = async () => {
-      tire.position = c.dataset.p;
-      await saveTire(tire.key, tire);
-      go('detail', { tireKey: tire.key });
+    c.onclick = () => {
+      selectedPosition = c.dataset.p;
+      sheet.querySelectorAll('#pp-chips .chip').forEach(x=>{
+        x.classList.toggle('active', x===c);
+        const info = posInfo(x.dataset.p);
+        x.style.background = x===c ? info.color : '';
+        x.style.borderColor = x===c ? info.color : '';
+      });
     };
   });
+
+  const customInput = document.getElementById('pp-session-custom');
+  sheet.querySelectorAll('#pp-session-chips .chip').forEach(c=>{
+    c.onclick = () => {
+      selectedSession = c.dataset.s;
+      sheet.querySelectorAll('#pp-session-chips .chip').forEach(x=>x.classList.toggle('active', x===c));
+      customInput.style.display = c.dataset.s==='AUTRE' ? 'block' : 'none';
+      if(c.dataset.s==='AUTRE') customInput.focus();
+    };
+  });
+
   document.getElementById('pp-skip').onclick = () => go('detail', { tireKey: tire.key });
+  document.getElementById('pp-continue').onclick = async () => {
+    if(selectedPosition){ tire.position = selectedPosition; await saveTire(tire.key, tire); }
+    const finalSession = selectedSession==='AUTRE' ? customInput.value.trim() : selectedSession;
+    const competition = document.getElementById('pp-competition').value.trim();
+    go('form', { tireKey: tire.key, prefillSession: finalSession || null, prefillLocation: competition || null });
+  };
 }
 
 // ---------- Detail ----------
@@ -517,6 +554,15 @@ function escapeHtml(str){
 async function renderForm(v){
   const tire = await getTire(state.tireKey);
   if(!tire){ go('home'); return; }
+  const prefillSession = state.prefillSession || '';
+  const prefillLocation = state.prefillLocation || '';
+  state.prefillSession = null;
+  state.prefillLocation = null;
+
+  const sessionOptions = SESSION_TYPES.includes(prefillSession) || !prefillSession
+    ? SESSION_TYPES
+    : [prefillSession, ...SESSION_TYPES];
+
   v.innerHTML = `
     <header>
       <div class="back" id="form-back">‹</div>
@@ -530,11 +576,11 @@ async function renderForm(v){
       <input type="date" id="f-date" value="${todayStr()}">
 
       <label>Lieu / événement</label>
-      <input type="text" id="f-loc" placeholder="Ex. Charade, La Chatre…">
+      <input type="text" id="f-loc" placeholder="Ex. Charade, La Chatre…" value="${escapeHtml(prefillLocation)}">
 
       <label>Type de session</label>
       <select id="f-type">
-        ${SESSION_TYPES.map(t=>`<option>${t}</option>`).join('')}
+        ${sessionOptions.map(t=>`<option ${t===prefillSession?'selected':''}>${t}</option>`).join('')}
       </select>
 
       <div class="row2">
