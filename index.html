@@ -4,9 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>SUIVI DES PNEUS</title>
+<meta name="theme-color" content="#121417">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pneus">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2@1.8.4/dist/quagga.min.js"></script>
 <style>
   :root{
     --asphalt:#121417;
@@ -22,7 +28,7 @@
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html,body{margin:0;height:100%;background:var(--asphalt);color:var(--chalk);font-family:'Inter',sans-serif;overscroll-behavior:none;}
-  #app{max-width:520px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;position:relative;}
+  #app{max-width:520px;margin:0 auto;min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;position:relative;}
 
   .tread{
     height:6px;width:100%;flex-shrink:0;
@@ -66,7 +72,7 @@
   .btn-sm{padding:9px 14px;font-size:12px;width:auto;}
 
   .fab{
-    position:fixed;bottom:22px;left:50%;transform:translateX(-50%);
+    position:fixed;bottom:calc(22px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);
     max-width:488px;width:calc(100% - 32px);z-index:6;
     box-shadow:0 8px 24px rgba(255,90,31,.35);
   }
@@ -175,6 +181,21 @@
   }
   .s-action-delete{color:#FF6B5A;border-color:#4a2420;}
 
+  /* Data sheet (export / import) */
+  .sheet-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:15;}
+  .home-sheet{
+    position:fixed;bottom:0;left:50%;transform:translateX(-50%);
+    max-width:520px;width:100%;background:var(--asphalt-2);
+    border-radius:16px 16px 0 0;border-top:1px solid var(--line);
+    padding:20px 20px calc(22px + env(safe-area-inset-bottom,0px));z-index:16;
+  }
+  .home-sheet h2{
+    font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:1px;
+    font-size:15px;font-weight:600;margin:0 0 14px;
+  }
+  .home-sheet .btn{margin-bottom:10px;}
+  .home-sheet .hint{font-size:12px;color:var(--chalk-dim);line-height:1.45;margin:4px 0 14px;}
+
   .toast{
     position:fixed;bottom:100px;left:50%;transform:translateX(-50%);
     background:var(--asphalt-3);border:1px solid var(--line);padding:10px 18px;border-radius:20px;
@@ -208,6 +229,16 @@ function fmtDate(d){ const [y,m,day]=d.split('-'); return `${day}/${m}/${y}`; }
 function showToast(msg){
   const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'), 1800);
+}
+function escapeHtml(str){
+  const d = document.createElement('div'); d.textContent = str ?? ''; return d.innerHTML;
+}
+
+// ---------- Service worker (offline) ----------
+if('serviceWorker' in navigator && location.protocol === 'https:'){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js').catch(e=>console.warn('SW registration failed', e));
+  });
 }
 
 // ---------- Beep ----------
@@ -276,6 +307,113 @@ async function findOrCreateTire(rawId){
   return { tire, isNew };
 }
 
+// ---------- Export / Import ----------
+async function getAllTires(){
+  const idx = await getIndex();
+  return (await Promise.all(idx.map(getTire))).filter(Boolean);
+}
+function downloadBlob(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+}
+async function exportJSON(){
+  const tires = await getAllTires();
+  if(tires.length===0){ showToast('Aucune donnée à exporter'); return; }
+  const payload = { app:'suivi-pneus', version:1, exportedAt:new Date().toISOString(), tires };
+  downloadBlob(new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'}), `suivi-pneus-${todayStr()}.json`);
+  showToast('Export JSON généré');
+}
+function csvCell(v){
+  const s = String(v ?? '');
+  return /[";\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+}
+async function exportCSV(){
+  const tires = await getAllTires();
+  if(tires.length===0){ showToast('Aucune donnée à exporter'); return; }
+  const header = ['pneu','position','date','lieu','session','tours','km','pression_froid_bar','pression_chaud_bar','temp_pneu_c','reglages','usure'];
+  const rows = [header.join(';')];
+  tires.forEach(t=>{
+    if(t.sessions.length===0){
+      rows.push([t.id, t.position||'', '', '', '', '', '', '', '', '', '', ''].map(csvCell).join(';'));
+    }
+    t.sessions.forEach(s=>{
+      rows.push([t.id, s.position||t.position||'', s.date, s.location, s.sessionType, s.laps, s.km,
+        s.pressureCold, s.pressureHot, s.temp, s.setup, s.wear].map(csvCell).join(';'));
+    });
+  });
+  // BOM pour qu'Excel FR reconnaisse l'UTF-8
+  downloadBlob(new Blob(['\ufeff'+rows.join('\r\n')], {type:'text/csv;charset=utf-8'}), `suivi-pneus-${todayStr()}.csv`);
+  showToast('Export CSV généré');
+}
+function importJSON(){
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.json,application/json';
+  inp.onchange = async () => {
+    const file = inp.files && inp.files[0];
+    if(!file) return;
+    try{
+      const data = JSON.parse(await file.text());
+      const list = Array.isArray(data) ? data : data.tires;
+      if(!Array.isArray(list)) throw new Error('format');
+      let added = 0, merged = 0;
+      for(const imp of list){
+        if(!imp || !imp.id) continue;
+        const key = imp.key || sanitizeKey(imp.id);
+        const existing = await getTire(key);
+        if(existing){
+          const known = new Set(existing.sessions.map(s=>s.id));
+          const news = (imp.sessions||[]).filter(s=>!known.has(s.id));
+          if(news.length){
+            existing.sessions = existing.sessions.concat(news)
+              .sort((a,b)=>(a.date||'').localeCompare(b.date||'') || (a.id-b.id));
+            merged += news.length;
+          }
+          if(!existing.position && imp.position) existing.position = imp.position;
+          await saveTire(key, existing);
+        } else {
+          await saveTire(key, { id: imp.id, key, position: imp.position||null,
+            createdAt: imp.createdAt||Date.now(), sessions: imp.sessions||[] });
+          const idx = await getIndex();
+          if(!idx.includes(key)){ idx.push(key); await saveIndex(idx); }
+          added++;
+        }
+      }
+      showToast(`Import : ${added} pneu${added>1?'s':''}, ${merged} roulage${merged>1?'s':''} ajoutés`);
+      go('home');
+    }catch(e){
+      console.error(e);
+      showToast('Fichier invalide — export JSON attendu');
+    }
+  };
+  inp.click();
+}
+function showDataSheet(){
+  const backdrop = document.createElement('div');
+  backdrop.className = 'sheet-backdrop';
+  const sheet = document.createElement('div');
+  sheet.className = 'home-sheet';
+  sheet.innerHTML = `
+    <h2>Sauvegarde des données</h2>
+    <div class="hint">Les données vivent dans le navigateur : pense à exporter après chaque week-end de course. Le JSON sert de sauvegarde/restauration, le CSV pour l'analyse (Excel, etc.).</div>
+    <button class="btn btn-primary" id="ds-json">⤓ &nbsp;Exporter la sauvegarde (JSON)</button>
+    <button class="btn btn-ghost" id="ds-csv">⤓ &nbsp;Exporter pour analyse (CSV)</button>
+    <button class="btn btn-ghost" id="ds-import">⤒ &nbsp;Importer une sauvegarde</button>
+    <button class="btn btn-ghost" id="ds-close">Fermer</button>
+  `;
+  const close = ()=>{ backdrop.remove(); sheet.remove(); };
+  backdrop.onclick = close;
+  document.body.appendChild(backdrop);
+  document.body.appendChild(sheet);
+  document.getElementById('ds-json').onclick = ()=>{ exportJSON(); };
+  document.getElementById('ds-csv').onclick = ()=>{ exportCSV(); };
+  document.getElementById('ds-import').onclick = ()=>{ close(); importJSON(); };
+  document.getElementById('ds-close').onclick = close;
+}
+
 // ---------- Router ----------
 function render(){
   stopCamera();
@@ -292,11 +430,13 @@ async function renderHome(v){
   v.innerHTML = `
     <header>
       <h1>Suivi des Pneus</h1>
+      <button class="back" id="data-btn" title="Sauvegarde / export">⇅</button>
     </header>
     <main id="home-main"><p style="color:var(--chalk-dim);font-family:'IBM Plex Mono',monospace;font-size:13px;">Chargement…</p></main>
     <button class="btn btn-primary fab" id="scan-fab">＋ &nbsp;Scanner un pneu</button>
   `;
   document.getElementById('scan-fab').onclick = () => go('scan');
+  document.getElementById('data-btn').onclick = showDataSheet;
 
   const idx = await getIndex();
   const tires = (await Promise.all(idx.map(getTire))).filter(Boolean);
@@ -337,7 +477,7 @@ async function renderHome(v){
     return `
       <div class="card" style="--pos-color:${info.color}" data-key="${t.key}">
         <div class="card-top">
-          <span class="card-id">${t.id}</span>
+          <span class="card-id">${escapeHtml(t.id)}</span>
           <span class="pos-badge" style="--pos-color:${info.color}">${info.label}</span>
         </div>
         <div class="card-meta">
@@ -353,6 +493,7 @@ async function renderHome(v){
 
 // ---------- Scanner ----------
 let detectionLocked = false;
+let recentReads = [];
 
 function stopCamera(){
   if(state.quaggaRunning){
@@ -365,7 +506,22 @@ function handleDetected(result){
   if(detectionLocked) return;
   const code = result && result.codeResult && result.codeResult.code;
   if(!code) return;
+
+  // 1) Rejette les lectures de mauvaise qualité (taux d'erreur moyen Quagga)
+  const errs = (result.codeResult.decodedCodes || [])
+    .filter(d => d.error !== undefined).map(d => d.error);
+  if(errs.length){
+    const avg = errs.reduce((a,b)=>a+b,0) / errs.length;
+    if(avg > 0.12) return;
+  }
+
+  // 2) Exige 2 lectures identiques parmi les dernières pour verrouiller
+  recentReads.push(code);
+  if(recentReads.length > 5) recentReads.shift();
+  if(recentReads.filter(c => c === code).length < 2) return;
+
   detectionLocked = true;
+  recentReads = [];
   playBeep();
   onBarcodeFound(code);
 }
@@ -409,6 +565,7 @@ function renderScan(v){
 
 function startCamera(){
   detectionLocked = false;
+  recentReads = [];
   const target = document.getElementById('scanner-container');
 
   if(typeof Quagga === 'undefined'){
@@ -452,11 +609,15 @@ function showManualEntry(){
     </div>
   `;
   wrap.appendChild(sheet);
-  document.getElementById('manual-cancel').onclick = () => sheet.remove();
-  document.getElementById('manual-ok').onclick = () => {
-    const val = document.getElementById('manual-input').value.trim();
+  const input = document.getElementById('manual-input');
+  const submit = () => {
+    const val = input.value.trim();
     if(val) onBarcodeFound(val);
   };
+  document.getElementById('manual-cancel').onclick = () => sheet.remove();
+  document.getElementById('manual-ok').onclick = submit;
+  input.addEventListener('keydown', e => { if(e.key === 'Enter') submit(); });
+  input.focus();
 }
 
 async function onBarcodeFound(rawValue){
@@ -539,7 +700,7 @@ async function renderDetail(v){
     <header>
       <div class="back" id="det-back">‹</div>
       <div style="flex:1;min-width:0;">
-        <h1>${tire.id}</h1>
+        <h1>${escapeHtml(tire.id)}</h1>
         <div class="sub">Enregistré le ${new Date(tire.createdAt).toLocaleDateString('fr-FR')}</div>
       </div>
       <button class="header-delete" id="delete-tire" title="Supprimer ce pneu">🗑</button>
@@ -582,7 +743,7 @@ async function renderDetail(v){
     return `
       <div class="session" data-idx="${i}">
         <div class="s-num">ROULAGE #${num} — ${fmtDate(s.date)} <span class="s-chevron">▾</span></div>
-        <div class="s-title">${s.location || 'Lieu non renseigné'} ${s.sessionType ? '· '+s.sessionType : ''}
+        <div class="s-title">${escapeHtml(s.location) || 'Lieu non renseigné'} ${s.sessionType ? '· '+escapeHtml(s.sessionType) : ''}
           ${s.position ? `<span class="pos-badge" style="--pos-color:${sInfo.color};margin-left:6px;">${sInfo.label}</span>` : ''}
         </div>
         <div class="s-detail">
@@ -618,10 +779,6 @@ async function renderDetail(v){
     };
   });
 }
-function escapeHtml(str){
-  const d = document.createElement('div'); d.textContent = str; return d.innerHTML;
-}
-
 // ---------- Form ----------
 async function renderForm(v){
   const tire = await getTire(state.tireKey);
@@ -644,7 +801,7 @@ async function renderForm(v){
       <div class="back" id="form-back">‹</div>
       <div>
         <h1>${editingSession ? 'Modifier le roulage' : 'Nouveau roulage'}</h1>
-        <div class="sub">${tire.id}</div>
+        <div class="sub">${escapeHtml(tire.id)}</div>
       </div>
     </header>
     <main class="form-sheet">
@@ -656,7 +813,7 @@ async function renderForm(v){
 
       <label>Type de session</label>
       <select id="f-type">
-        ${sessionOptions.map(t=>`<option ${t===prefillSession?'selected':''}>${t}</option>`).join('')}
+        ${sessionOptions.map(t=>`<option ${t===prefillSession?'selected':''}>${escapeHtml(t)}</option>`).join('')}
       </select>
 
       <div class="row2">
