@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2@1.8.4/dist/quagga.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
 <style>
   :root{
     --asphalt:#121417;
@@ -429,7 +429,10 @@ function go(view, opts={}){ state = {...state, ...opts, view}; render(); }
 async function renderHome(v){
   v.innerHTML = `
     <header>
-      <h1>Suivi des Pneus</h1>
+      <div style="flex:1;">
+        <h1>Suivi des Pneus</h1>
+        <div class="sub">${APP_VERSION} · scanner ZXing</div>
+      </div>
       <button class="back" id="data-btn" title="Sauvegarde / export">⇅</button>
     </header>
     <main id="home-main"><p style="color:var(--chalk-dim);font-family:'IBM Plex Mono',monospace;font-size:13px;">Chargement…</p></main>
@@ -491,32 +494,25 @@ async function renderHome(v){
   });
 }
 
-// ---------- Scanner ----------
+// ---------- Scanner (ZXing) ----------
+const APP_VERSION = 'v4';
 let detectionLocked = false;
 let recentReads = [];
+let zxingReader = null;
 
 function stopCamera(){
-  if(state.quaggaRunning){
-    try{ Quagga.offDetected(handleDetected); Quagga.stop(); }catch(e){}
-    state.quaggaRunning = false;
+  if(zxingReader){
+    try{ zxingReader.reset(); }catch(e){}
+    zxingReader = null;
   }
+  state.quaggaRunning = false;
 }
 
-function handleDetected(result){
-  if(detectionLocked) return;
-  const code = result && result.codeResult && result.codeResult.code;
-  if(!code) return;
+function handleDetected(code){
+  if(detectionLocked || !code) return;
 
-  // 1) Rejette les lectures de très mauvaise qualité (taux d'erreur moyen Quagga)
-  const errs = (result.codeResult.decodedCodes || [])
-    .filter(d => d.error !== undefined).map(d => d.error);
-  if(errs.length){
-    const avg = errs.reduce((a,b)=>a+b,0) / errs.length;
-    if(avg > 0.28) return;
-  }
-
-  // 2) Verrouillage : les codes FIA (8 chiffres) sont acceptés après 2 lectures
-  //    identiques ; tout autre format en demande 3 (anti fausse lecture)
+  // Verrouillage : codes FIA (8 chiffres) après 2 lectures identiques,
+  // autres formats après 3 (anti fausse lecture)
   recentReads.push(code);
   if(recentReads.length > 6) recentReads.shift();
   const needed = /^\d{8}$/.test(code) ? 2 : 3;
@@ -549,7 +545,7 @@ function renderScan(v){
         <div class="back" id="scan-back">‹</div>
         <h1 style="font-family:'Oswald';color:#fff;font-size:16px;letter-spacing:1px;text-transform:uppercase;margin:0;">Scanner le pneu</h1>
       </div>
-      <div id="scanner-container"></div>
+      <div id="scanner-container"><video id="scan-video" playsinline muted autoplay></video></div>
       <div class="viewfinder" id="vf">
         <div class="vf-corner tl"></div><div class="vf-corner tr"></div>
         <div class="vf-corner bl"></div><div class="vf-corner br"></div>
@@ -569,36 +565,32 @@ function renderScan(v){
 function startCamera(){
   detectionLocked = false;
   recentReads = [];
-  const target = document.getElementById('scanner-container');
 
-  if(typeof Quagga === 'undefined'){
+  if(typeof ZXing === 'undefined'){
     showCameraError("La librairie de scan n'a pas pu se charger (vérifie ta connexion). Saisis le code manuellement.");
     return;
   }
 
-  Quagga.init({
-    inputStream: {
-      type: 'LiveStream',
-      target: target,
-      constraints: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
-      // Ne décode que la bande centrale (zone du viseur) : plus rapide et plus fiable
-      area: { top: '30%', right: '10%', left: '10%', bottom: '30%' },
-    },
-    locator: { patchSize: 'medium', halfSample: false },
-    numOfWorkers: 2,
-    frequency: 10,
-    decoder: { readers: ['code_128_reader','i2of5_reader','code_39_reader'] },
-    locate: true,
-  }, function(err){
-    if(err){
-      console.error(err);
-      showCameraError("Impossible d'accéder à la caméra. Vérifie les autorisations du navigateur, ou saisis le code manuellement.");
-      return;
-    }
-    Quagga.start();
+  const hints = new Map();
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+    ZXing.BarcodeFormat.CODE_128,
+    ZXing.BarcodeFormat.ITF,
+    ZXing.BarcodeFormat.CODE_39,
+  ]);
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+
+  zxingReader = new ZXing.BrowserMultiFormatReader(hints, 150);
+  zxingReader.decodeFromConstraints(
+    { audio: false, video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } },
+    document.getElementById('scan-video'),
+    (result) => { if(result) handleDetected(result.getText()); }
+    // les erreurs NotFoundException entre deux images sont normales, on les ignore
+  ).then(() => {
     state.quaggaRunning = true;
-    Quagga.onDetected(handleDetected);
     setupTorch();
+  }).catch((err) => {
+    console.error(err);
+    showCameraError("Impossible d'accéder à la caméra. Vérifie les autorisations du navigateur, ou saisis le code manuellement.");
   });
 }
 
@@ -606,9 +598,10 @@ let torchOn = false;
 function setupTorch(){
   torchOn = false;
   const btn = document.getElementById('torch-btn');
-  if(!btn) return;
+  const video = document.getElementById('scan-video');
+  if(!btn || !video || !video.srcObject) return;
   try{
-    const track = Quagga.CameraAccess.getActiveTrack();
+    const track = video.srcObject.getVideoTracks()[0];
     const caps = track && track.getCapabilities ? track.getCapabilities() : null;
     if(!caps || !caps.torch) return; // non supporté (souvent le cas sur iPhone)
     btn.style.display = 'inline-flex';

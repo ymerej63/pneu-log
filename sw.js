@@ -2,13 +2,13 @@
 // Stratégie : cache-first avec mise à jour en arrière-plan (stale-while-revalidate)
 // pour que l'app fonctionne intégralement hors ligne (paddock sans réseau).
 
-const CACHE = 'suivi-pneus-v3';
+const CACHE = 'suivi-pneus-v4';
 
 const PRECACHE = [
   './',
   './index.html',
   './manifest.json',
-  'https://cdn.jsdelivr.net/npm/@ericblade/quagga2@1.8.4/dist/quagga.min.js',
+  'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js',
 ];
 
 self.addEventListener('install', (e) => {
