@@ -507,18 +507,20 @@ function handleDetected(result){
   const code = result && result.codeResult && result.codeResult.code;
   if(!code) return;
 
-  // 1) Rejette les lectures de mauvaise qualité (taux d'erreur moyen Quagga)
+  // 1) Rejette les lectures de très mauvaise qualité (taux d'erreur moyen Quagga)
   const errs = (result.codeResult.decodedCodes || [])
     .filter(d => d.error !== undefined).map(d => d.error);
   if(errs.length){
     const avg = errs.reduce((a,b)=>a+b,0) / errs.length;
-    if(avg > 0.12) return;
+    if(avg > 0.28) return;
   }
 
-  // 2) Exige 2 lectures identiques parmi les dernières pour verrouiller
+  // 2) Verrouillage : les codes FIA (8 chiffres) sont acceptés après 2 lectures
+  //    identiques ; tout autre format en demande 3 (anti fausse lecture)
   recentReads.push(code);
-  if(recentReads.length > 5) recentReads.shift();
-  if(recentReads.filter(c => c === code).length < 2) return;
+  if(recentReads.length > 6) recentReads.shift();
+  const needed = /^\d{8}$/.test(code) ? 2 : 3;
+  if(recentReads.filter(c => c === code).length < needed) return;
 
   detectionLocked = true;
   recentReads = [];
@@ -553,7 +555,8 @@ function renderScan(v){
         <div class="vf-corner bl"></div><div class="vf-corner br"></div>
       </div>
       <div class="scan-hint" id="hint">
-        <p>Vise le code-barres du pneu (DOT / série)</p>
+        <p>Vise l'étiquette jaune FIA du pneu</p>
+        <button class="btn btn-ghost btn-sm" id="torch-btn" style="display:none;margin:0 auto 12px;">🔦 Torche</button>
         <button class="manual-toggle" id="manual-btn">Saisir le code manuellement</button>
       </div>
     </div>
@@ -577,12 +580,14 @@ function startCamera(){
     inputStream: {
       type: 'LiveStream',
       target: target,
-      constraints: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      constraints: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+      // Ne décode que la bande centrale (zone du viseur) : plus rapide et plus fiable
+      area: { top: '30%', right: '10%', left: '10%', bottom: '30%' },
     },
-    locator: { patchSize: 'medium', halfSample: true },
+    locator: { patchSize: 'medium', halfSample: false },
     numOfWorkers: 2,
     frequency: 10,
-    decoder: { readers: ['code_128_reader','ean_reader','code_39_reader','codabar_reader','i2of5_reader','upc_reader'] },
+    decoder: { readers: ['code_128_reader','i2of5_reader','code_39_reader'] },
     locate: true,
   }, function(err){
     if(err){
@@ -593,7 +598,28 @@ function startCamera(){
     Quagga.start();
     state.quaggaRunning = true;
     Quagga.onDetected(handleDetected);
+    setupTorch();
   });
+}
+
+let torchOn = false;
+function setupTorch(){
+  torchOn = false;
+  const btn = document.getElementById('torch-btn');
+  if(!btn) return;
+  try{
+    const track = Quagga.CameraAccess.getActiveTrack();
+    const caps = track && track.getCapabilities ? track.getCapabilities() : null;
+    if(!caps || !caps.torch) return; // non supporté (souvent le cas sur iPhone)
+    btn.style.display = 'inline-flex';
+    btn.onclick = async () => {
+      try{
+        torchOn = !torchOn;
+        await track.applyConstraints({ advanced: [{ torch: torchOn }] });
+        btn.textContent = torchOn ? '🔦 Torche ON' : '🔦 Torche';
+      }catch(e){ console.warn('torch failed', e); }
+    };
+  }catch(e){ /* ignore */ }
 }
 
 function showManualEntry(){
