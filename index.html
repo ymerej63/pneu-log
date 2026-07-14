@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/zxing-wasm@2/dist/iife/reader/index.js"></script>
 <style>
   :root{
     --asphalt:#121417;
@@ -431,7 +431,7 @@ async function renderHome(v){
     <header>
       <div style="flex:1;">
         <h1>Suivi des Pneus</h1>
-        <div class="sub">${APP_VERSION} · scanner ZXing</div>
+        <div class="sub">${APP_VERSION} · scanner WASM</div>
       </div>
       <button class="back" id="data-btn" title="Sauvegarde / export">⇅</button>
     </header>
@@ -494,72 +494,80 @@ async function renderHome(v){
   });
 }
 
-// ---------- Scanner (caméra gérée en direct + décodage ZXing) ----------
-const APP_VERSION = 'v5';
+// ---------- Scanner (caméra gérée en direct + décodage ZXing-C++ WebAssembly) ----------
+const APP_VERSION = 'v6';
 let detectionLocked = false;
 let recentReads = [];
 let scanStream = null;
-let scanTimer = null;
-let mfReader = null;
+let scanAbort = false;
 
 function stopCamera(){
-  if(scanTimer){ clearInterval(scanTimer); scanTimer = null; }
+  scanAbort = true;
   if(scanStream){ try{ scanStream.getTracks().forEach(t=>t.stop()); }catch(e){} scanStream = null; }
-  mfReader = null;
   state.quaggaRunning = false;
+}
+
+function setScanStatus(msg){
+  const p = document.querySelector('#hint p');
+  if(p) p.textContent = msg;
 }
 
 async function startCamera(){
   detectionLocked = false;
   recentReads = [];
+  scanAbort = false;
   const video = document.getElementById('scan-video');
 
   try{
-    if(typeof ZXing === 'undefined') throw new Error('librairie ZXing non chargée (connexion ?)');
+    if(typeof ZXingWASM === 'undefined') throw new Error('librairie de scan non chargée (connexion ?)');
     if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('caméra non disponible dans ce navigateur');
 
-    // 1) Caméra pilotée directement (fiable, identique à l'ancienne version qui marchait)
+    // 1) Caméra pilotée directement
     scanStream = await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
     });
     video.srcObject = scanStream;
     await video.play();
+    state.quaggaRunning = true;
+    setupTorch();
+    setScanStatus('Chargement du décodeur…');
 
-    // 2) Décodeur ZXing pur (MultiFormatReader, classe cœur toujours présente)
-    const hints = new Map();
-    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-      ZXing.BarcodeFormat.CODE_128,
-      ZXing.BarcodeFormat.ITF,
-      ZXing.BarcodeFormat.CODE_39,
-    ]);
-    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-    mfReader = new ZXing.MultiFormatReader();
-    mfReader.setHints(hints);
-
+    // 2) Boucle de scan : bande centrale de l'image → ZXing-C++ (WASM)
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    let decoderReady = false;
+    let errorShown = false;
 
-    // 3) Boucle de scan : on découpe la bande centrale de l'image (zone du viseur)
-    scanTimer = setInterval(() => {
-      if(detectionLocked || !video.videoWidth) return;
-      const vw = video.videoWidth, vh = video.videoHeight;
-      const cw = Math.round(vw * 0.9), ch = Math.round(vh * 0.5);
-      const cx = Math.round((vw - cw) / 2), cy = Math.round((vh - ch) / 2);
-      canvas.width = cw; canvas.height = ch;
-      ctx.drawImage(video, cx, cy, cw, ch, 0, 0, cw, ch);
-      try{
-        const lum = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
-        const bmp = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum));
-        const result = mfReader.decode(bmp);
-        if(result) handleDetected(result.getText());
-      }catch(e){ /* NotFoundException = pas de code sur cette image : normal */ }
-    }, 180);
-
-    state.quaggaRunning = true;
-    const hintP = document.querySelector('#hint p');
-    if(hintP) hintP.textContent = "Scanner actif — vise l'étiquette jaune FIA";
-    setupTorch();
+    while(!scanAbort && !detectionLocked){
+      if(video.videoWidth){
+        const vw = video.videoWidth, vh = video.videoHeight;
+        const cw = Math.round(vw * 0.92), ch = Math.round(vh * 0.55);
+        const cx = Math.round((vw - cw) / 2), cy = Math.round((vh - ch) / 2);
+        canvas.width = cw; canvas.height = ch;
+        ctx.drawImage(video, cx, cy, cw, ch, 0, 0, cw, ch);
+        try{
+          const results = await ZXingWASM.readBarcodes(
+            ctx.getImageData(0, 0, cw, ch),
+            { tryHarder: true, tryRotate: true, tryInvert: true, maxNumberOfSymbols: 1 }
+          );
+          if(!decoderReady){
+            decoderReady = true;
+            setScanStatus("Scanner actif — vise l'étiquette jaune FIA");
+          }
+          if(results && results.length && results[0].text){
+            handleDetected(results[0].text);
+          }
+        }catch(e){
+          console.error(e);
+          if(!errorShown){
+            errorShown = true;
+            setScanStatus('Erreur décodeur : ' + (e && e.message ? e.message : e));
+          }
+        }
+      }
+      await new Promise(r => setTimeout(r, 120));
+    }
   }catch(err){
     console.error(err);
     stopCamera();
