@@ -431,7 +431,7 @@ async function renderHome(v){
     <header>
       <div style="flex:1;">
         <h1>Suivi des Pneus</h1>
-        <div class="sub">${APP_VERSION} · scanner WASM</div>
+        <div class="sub">${APP_VERSION} · scanner FIA</div>
       </div>
       <button class="back" id="data-btn" title="Sauvegarde / export">⇅</button>
     </header>
@@ -494,8 +494,183 @@ async function renderHome(v){
   });
 }
 
+// ---------- Décodeur FIA-ITF spécialisé ----------
+// Les étiquettes FIA sont en Interleaved 2 of 5, 8 chiffres, souvent usées/craquelées.
+// Les librairies génériques lisent ligne par ligne : chaque fissure casse la lecture.
+// Ici : détection de l'étiquette jaune, redressement, puis MOYENNE VERTICALE des
+// barres (répare les fissures) avant décodage. Validé sur photos réelles.
+const ITF_PAT = {'NNWWN':'0','WNNNW':'1','NWNNW':'2','WWNNN':'3','NNWNW':'4',
+                 'WNWNN':'5','NWWNN':'6','NNNWW':'7','WNNWN':'8','NWNWN':'9'};
+
+function median(arr){
+  const s = arr.slice().sort((a,b) => a-b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m-1] + s[m]) / 2;
+}
+
+function itfRunsFromProfile(profile){
+  const n = profile.length;
+  const k = Math.max(31, Math.round(n / 9) | 1);
+  const half = k >> 1;
+  const cum = new Float64Array(n + 1);
+  for(let i = 0; i < n; i++) cum[i+1] = cum[i] + profile[i];
+  const runs = [];
+  let cur = -1, count = 0;
+  for(let i = 0; i < n; i++){
+    const a = Math.max(0, i - half), b = Math.min(n, i + half + 1);
+    const base = (cum[b] - cum[a]) / (b - a);
+    const v = profile[i] < base - 6 ? 1 : 0;
+    if(v === cur) count++;
+    else { if(cur >= 0) runs.push([cur, count]); cur = v; count = 1; }
+  }
+  runs.push([cur, count]);
+  return runs;
+}
+
+function itfDecodeRuns(runs){
+  runs = runs.slice();
+  while(runs.length && runs[0][0] === 0) runs.shift();
+  while(runs.length && runs[runs.length-1][0] === 0) runs.pop();
+  if(runs.length < 47) return null;
+  for(let start = 0; start + 47 <= runs.length; start++){
+    const seg = runs.slice(start, start + 47);
+    if(seg[0][0] !== 1) continue;
+    const widths = seg.map(r => r[1]);
+    const narrow = median(widths.slice().sort((a,b) => a-b).slice(0, 20));
+    if(narrow < 1.6) continue;
+    const cls = widths.map(w => {
+      const r = w / narrow;
+      if(r < 1.8) return 'N';
+      if(r < 4.5) return 'W';
+      return '?';
+    });
+    // start : barre,espace,barre,espace étroits — stop : W N N
+    if(cls[0]!=='N'||cls[1]!=='N'||cls[2]!=='N'||cls[3]!=='N') continue;
+    if(cls[44]!=='W'||cls[45]!=='N'||cls[46]!=='N') continue;
+    let digits = '', ok = true;
+    for(let pair = 0; pair < 4; pair++){
+      const base = 4 + pair*10;
+      let bars = '', spaces = '';
+      for(let i = 0; i < 5; i++){ bars += cls[base + 2*i]; spaces += cls[base + 2*i + 1]; }
+      if(!(bars in ITF_PAT) || !(spaces in ITF_PAT)){ ok = false; break; }
+      digits += ITF_PAT[bars] + ITF_PAT[spaces];
+    }
+    if(ok) return digits;
+  }
+  return null;
+}
+
+// Détecte les zones jaunes candidates (composantes connexes + filtre de forme)
+function findYellowRegions(imgData){
+  const d = imgData.data, w = imgData.width, h = imgData.height;
+  const mask = new Uint8Array(w * h);
+  for(let y = 0; y < h; y++){
+    for(let x = 0; x < w; x++){
+      const i = (y*w + x) * 4, r = d[i], g = d[i+1], b = d[i+2];
+      if(r > 95 && g > 70 && b < r*0.72 && g > r*0.55 && r >= g - 10) mask[y*w + x] = 1;
+    }
+  }
+  // étiquetage par parcours en largeur
+  const labels = new Int32Array(w * h);
+  const comps = [];
+  const stack = new Int32Array(w * h);
+  for(let start = 0; start < w*h; start++){
+    if(!mask[start] || labels[start]) continue;
+    const id = comps.length + 1;
+    let sp = 0; stack[sp++] = start; labels[start] = id;
+    let count = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+    while(sp > 0){
+      const p = stack[--sp];
+      const px = p % w, py = (p / w) | 0;
+      count++; sx += px; sy += py; sxx += px*px; syy += py*py; sxy += px*py;
+      // 4-voisinage
+      if(px > 0   && mask[p-1] && !labels[p-1]){ labels[p-1] = id; stack[sp++] = p-1; }
+      if(px < w-1 && mask[p+1] && !labels[p+1]){ labels[p+1] = id; stack[sp++] = p+1; }
+      if(py > 0   && mask[p-w] && !labels[p-w]){ labels[p-w] = id; stack[sp++] = p-w; }
+      if(py < h-1 && mask[p+w] && !labels[p+w]){ labels[p+w] = id; stack[sp++] = p+w; }
+    }
+    if(count < 150) continue;
+    const mx = sx/count, my = sy/count;
+    const cxx = sxx/count - mx*mx, cyy = syy/count - my*my, cxy = sxy/count - mx*my;
+    const common = Math.sqrt(Math.max(0, ((cxx-cyy)/2)*((cxx-cyy)/2) + cxy*cxy));
+    const l1 = (cxx+cyy)/2 + common, l2 = Math.max((cxx+cyy)/2 - common, 0.5);
+    const aspect = Math.sqrt(l1 / l2);
+    // une étiquette code-barres est un rectangle allongé (ratio ~3-4)
+    if(aspect < 1.7 || aspect > 8) continue;
+    comps.push({ count, cx: mx, cy: my,
+                 angle: 0.5 * Math.atan2(2*cxy, cxx - cyy),
+                 halfW: Math.sqrt(l1) * 1.95,
+                 halfH: Math.sqrt(l2) * 2.3 });
+  }
+  comps.sort((a,b) => b.count - a.count);
+  return comps.slice(0, 4);
+}
+
+// Pipeline complet : trouve l'étiquette dans un canvas, la redresse, décode
+const fiaWork = document.createElement('canvas');
+const fiaLabel = document.createElement('canvas');
+function fiaDecodeFromCanvas(srcCanvas){
+  const sw = srcCanvas.width, sh = srcCanvas.height;
+  if(!sw || !sh) return null;
+  // 1) détection jaune sur version réduite
+  const detW = 420, scale = detW / sw;
+  fiaWork.width = detW; fiaWork.height = Math.max(1, Math.round(sh * scale));
+  const wctx = fiaWork.getContext('2d', { willReadFrequently: true });
+  wctx.drawImage(srcCanvas, 0, 0, fiaWork.width, fiaWork.height);
+  const regions = findYellowRegions(wctx.getImageData(0, 0, fiaWork.width, fiaWork.height));
+  for(const reg of regions){
+    const code = fiaDecodeRegion(srcCanvas, reg, scale);
+    if(code) return code;
+  }
+  return null;
+}
+
+function fiaDecodeRegion(srcCanvas, reg, scale){
+  const sw = srcCanvas.width, sh = srcCanvas.height;
+  // 2) redressement à bonne résolution depuis la source
+  const fcx = reg.cx/scale, fcy = reg.cy/scale;
+  const HW = Math.min(reg.halfW/scale, sw), HH = Math.min(reg.halfH/scale, sh);
+  if(HW < 40) return null; // étiquette trop petite / trop loin
+  const outW = 900, outScale = outW / (2*HW*1.06);
+  fiaLabel.width = outW;
+  fiaLabel.height = Math.max(60, Math.min(500, Math.round(2*HH*1.15*outScale)));
+  const lctx = fiaLabel.getContext('2d', { willReadFrequently: true });
+  lctx.setTransform(1,0,0,1,0,0);
+  lctx.fillStyle = '#808080';
+  lctx.fillRect(0, 0, fiaLabel.width, fiaLabel.height);
+  lctx.translate(fiaLabel.width/2, fiaLabel.height/2);
+  lctx.rotate(-reg.angle);
+  lctx.scale(outScale, outScale);
+  lctx.drawImage(srcCanvas, -fcx, -fcy);
+  // 3) niveaux de gris, plusieurs bandes moyennées verticalement, deux sens
+  const img = lctx.getImageData(0, 0, fiaLabel.width, fiaLabel.height);
+  const W = img.width, H = img.height, data = img.data;
+  const gray = new Float32Array(W * H);
+  for(let i = 0, j = 0; i < data.length; i += 4, j++)
+    gray[j] = data[i]*0.299 + data[i+1]*0.587 + data[i+2]*0.114;
+  const bands = [[0.12,0.55],[0.20,0.68],[0.30,0.78],[0.42,0.85],[0.15,0.42],[0.55,0.85]];
+  const votes = {};
+  for(const tb of bands){
+    const y0 = Math.round(H*tb[0]), y1 = Math.max(y0+3, Math.round(H*tb[1]));
+    const profile = new Float64Array(W);
+    for(let x = 0; x < W; x++){
+      let s = 0;
+      for(let y = y0; y < y1; y++) s += gray[y*W + x];
+      profile[x] = s / (y1 - y0);
+    }
+    const rev = Float64Array.from(profile).reverse();
+    for(const p of [profile, rev]){
+      const code = itfDecodeRuns(itfRunsFromProfile(p));
+      if(code) votes[code] = (votes[code] || 0) + 1;
+    }
+  }
+  let best = null, bestN = 0;
+  for(const c in votes) if(votes[c] > bestN){ best = c; bestN = votes[c]; }
+  return best;
+}
+
 // ---------- Scanner (caméra gérée en direct + décodage ZXing-C++ WebAssembly) ----------
-const APP_VERSION = 'v6';
+const APP_VERSION = 'v7';
 let detectionLocked = false;
 let recentReads = [];
 let scanStream = null;
@@ -542,18 +717,26 @@ async function startCamera(){
     while(!scanAbort && !detectionLocked){
       if(video.videoWidth){
         const vw = video.videoWidth, vh = video.videoHeight;
-        const cw = Math.round(vw * 0.92), ch = Math.round(vh * 0.55);
+        const cw = Math.round(vw * 0.96), ch = Math.round(vh * 0.72);
         const cx = Math.round((vw - cw) / 2), cy = Math.round((vh - ch) / 2);
         canvas.width = cw; canvas.height = ch;
         ctx.drawImage(video, cx, cy, cw, ch, 0, 0, cw, ch);
+
+        // A) Décodeur FIA spécialisé (moyenne verticale, résiste à l'usure)
         try{
+          const fia = fiaDecodeFromCanvas(canvas);
+          if(fia) handleDetected(fia);
+        }catch(e){ console.warn('fia decoder', e); }
+
+        // B) ZXing-C++ WASM en secours (autres codes / cas généraux)
+        if(!detectionLocked) try{
           const results = await ZXingWASM.readBarcodes(
             ctx.getImageData(0, 0, cw, ch),
             { tryHarder: true, tryRotate: true, tryInvert: true, maxNumberOfSymbols: 1 }
           );
           if(!decoderReady){
             decoderReady = true;
-            setScanStatus("Scanner actif — vise l'étiquette jaune FIA");
+            setScanStatus("Scanner actif — vise l'étiquette jaune, ou utilise 📷 Photo HD");
           }
           if(results && results.length && results[0].text){
             handleDetected(results[0].text);
@@ -619,6 +802,7 @@ function renderScan(v){
       </div>
       <div class="scan-hint" id="hint">
         <p>Vise l'étiquette jaune FIA du pneu</p>
+        <button class="btn btn-primary btn-sm" id="photo-btn" style="margin:0 auto 10px;max-width:260px;">📷 &nbsp;Photo HD (recommandé)</button>
         <button class="btn btn-ghost btn-sm" id="torch-btn" style="display:none;margin:0 auto 12px;">🔦 Torche</button>
         <button class="manual-toggle" id="manual-btn">Saisir le code manuellement</button>
       </div>
@@ -626,6 +810,7 @@ function renderScan(v){
   `;
   document.getElementById('scan-back').onclick = () => go('home');
   document.getElementById('manual-btn').onclick = showManualEntry;
+  document.getElementById('photo-btn').onclick = photoHD;
   startCamera();
 }
 
@@ -648,6 +833,59 @@ function setupTorch(){
       }catch(e){ console.warn('torch failed', e); }
     };
   }catch(e){ /* ignore */ }
+}
+
+function photoHD(){
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/*';
+  inp.capture = 'environment';
+  inp.onchange = async () => {
+    const file = inp.files && inp.files[0];
+    if(!file) return;
+    setScanStatus('Analyse de la photo…');
+    try{
+      let bmp;
+      try{ bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+      catch(e){ bmp = await createImageBitmap(file); }
+      // limiter à 2600px de large (suffisant, validé sur photos réelles)
+      const maxW = 2600;
+      const sc = Math.min(1, maxW / bmp.width);
+      const pc = document.createElement('canvas');
+      pc.width = Math.round(bmp.width * sc);
+      pc.height = Math.round(bmp.height * sc);
+      pc.getContext('2d').drawImage(bmp, 0, 0, pc.width, pc.height);
+
+      // A) décodeur FIA spécialisé
+      let code = null;
+      try{ code = fiaDecodeFromCanvas(pc); }catch(e){ console.warn(e); }
+
+      // B) secours : ZXing-C++ sur l'image entière
+      if(!code && typeof ZXingWASM !== 'undefined'){
+        try{
+          const pctx = pc.getContext('2d');
+          const results = await ZXingWASM.readBarcodes(
+            pctx.getImageData(0, 0, pc.width, pc.height),
+            { tryHarder: true, tryRotate: true, tryInvert: true, maxNumberOfSymbols: 1 }
+          );
+          if(results && results.length && results[0].text) code = results[0].text;
+        }catch(e){ console.warn(e); }
+      }
+
+      if(code){
+        detectionLocked = true;
+        playBeep();
+        onBarcodeFound(code);
+      }else{
+        setScanStatus("Photo illisible — rapproche-toi (étiquette bien à plat dans le cadre) et réessaie");
+        showToast('Code non lu sur la photo');
+      }
+    }catch(e){
+      console.error(e);
+      setScanStatus('Erreur photo : ' + (e && e.message ? e.message : e));
+    }
+  };
+  inp.click();
 }
 
 function showManualEntry(){
