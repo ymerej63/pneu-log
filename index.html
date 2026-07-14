@@ -494,18 +494,77 @@ async function renderHome(v){
   });
 }
 
-// ---------- Scanner (ZXing) ----------
-const APP_VERSION = 'v4';
+// ---------- Scanner (caméra gérée en direct + décodage ZXing) ----------
+const APP_VERSION = 'v5';
 let detectionLocked = false;
 let recentReads = [];
-let zxingReader = null;
+let scanStream = null;
+let scanTimer = null;
+let mfReader = null;
 
 function stopCamera(){
-  if(zxingReader){
-    try{ zxingReader.reset(); }catch(e){}
-    zxingReader = null;
-  }
+  if(scanTimer){ clearInterval(scanTimer); scanTimer = null; }
+  if(scanStream){ try{ scanStream.getTracks().forEach(t=>t.stop()); }catch(e){} scanStream = null; }
+  mfReader = null;
   state.quaggaRunning = false;
+}
+
+async function startCamera(){
+  detectionLocked = false;
+  recentReads = [];
+  const video = document.getElementById('scan-video');
+
+  try{
+    if(typeof ZXing === 'undefined') throw new Error('librairie ZXing non chargée (connexion ?)');
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('caméra non disponible dans ce navigateur');
+
+    // 1) Caméra pilotée directement (fiable, identique à l'ancienne version qui marchait)
+    scanStream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
+    });
+    video.srcObject = scanStream;
+    await video.play();
+
+    // 2) Décodeur ZXing pur (MultiFormatReader, classe cœur toujours présente)
+    const hints = new Map();
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+      ZXing.BarcodeFormat.CODE_128,
+      ZXing.BarcodeFormat.ITF,
+      ZXing.BarcodeFormat.CODE_39,
+    ]);
+    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    mfReader = new ZXing.MultiFormatReader();
+    mfReader.setHints(hints);
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    // 3) Boucle de scan : on découpe la bande centrale de l'image (zone du viseur)
+    scanTimer = setInterval(() => {
+      if(detectionLocked || !video.videoWidth) return;
+      const vw = video.videoWidth, vh = video.videoHeight;
+      const cw = Math.round(vw * 0.9), ch = Math.round(vh * 0.5);
+      const cx = Math.round((vw - cw) / 2), cy = Math.round((vh - ch) / 2);
+      canvas.width = cw; canvas.height = ch;
+      ctx.drawImage(video, cx, cy, cw, ch, 0, 0, cw, ch);
+      try{
+        const lum = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+        const bmp = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum));
+        const result = mfReader.decode(bmp);
+        if(result) handleDetected(result.getText());
+      }catch(e){ /* NotFoundException = pas de code sur cette image : normal */ }
+    }, 180);
+
+    state.quaggaRunning = true;
+    const hintP = document.querySelector('#hint p');
+    if(hintP) hintP.textContent = "Scanner actif — vise l'étiquette jaune FIA";
+    setupTorch();
+  }catch(err){
+    console.error(err);
+    stopCamera();
+    showCameraError("Scanner impossible à démarrer : " + (err && err.message ? err.message : err) + ". Tu peux saisir le code manuellement.");
+  }
 }
 
 function handleDetected(code){
@@ -560,38 +619,6 @@ function renderScan(v){
   document.getElementById('scan-back').onclick = () => go('home');
   document.getElementById('manual-btn').onclick = showManualEntry;
   startCamera();
-}
-
-function startCamera(){
-  detectionLocked = false;
-  recentReads = [];
-
-  if(typeof ZXing === 'undefined'){
-    showCameraError("La librairie de scan n'a pas pu se charger (vérifie ta connexion). Saisis le code manuellement.");
-    return;
-  }
-
-  const hints = new Map();
-  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-    ZXing.BarcodeFormat.CODE_128,
-    ZXing.BarcodeFormat.ITF,
-    ZXing.BarcodeFormat.CODE_39,
-  ]);
-  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-
-  zxingReader = new ZXing.BrowserMultiFormatReader(hints, 150);
-  zxingReader.decodeFromConstraints(
-    { audio: false, video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } },
-    document.getElementById('scan-video'),
-    (result) => { if(result) handleDetected(result.getText()); }
-    // les erreurs NotFoundException entre deux images sont normales, on les ignore
-  ).then(() => {
-    state.quaggaRunning = true;
-    setupTorch();
-  }).catch((err) => {
-    console.error(err);
-    showCameraError("Impossible d'accéder à la caméra. Vérifie les autorisations du navigateur, ou saisis le code manuellement.");
-  });
 }
 
 let torchOn = false;
