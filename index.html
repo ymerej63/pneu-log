@@ -686,7 +686,7 @@ function fiaDecodeRegion(srcCanvas, reg, scale){
 }
 
 // ---------- Scanner (caméra gérée en direct + décodage ZXing-C++ WebAssembly) ----------
-const APP_VERSION = 'v9.1';
+const APP_VERSION = 'v9.3';
 let detectionLocked = false;
 let recentReads = [];
 let scanStream = null;
@@ -1020,13 +1020,23 @@ async function renderDetail(v){
         <div class="stat"><b>${totalKm||'—'}</b><span>Km</span></div>
       </div>
 
-      <button class="btn btn-primary" id="add-session" style="margin-bottom:22px;">＋ Ajouter un roulage</button>
+      <div class="row2" style="margin-bottom:22px;">
+        <button class="btn btn-primary" id="add-session" style="margin-bottom:0;">＋ Ajouter un roulage</button>
+        ${tire.sessions.length ? `<button class="btn btn-ghost" id="dup-session" style="margin-bottom:0;">⧉ Dupliquer le dernier</button>` : ''}
+      </div>
 
       <div id="history"></div>
     </main>
   `;
   document.getElementById('det-back').onclick = () => go('home');
   document.getElementById('add-session').onclick = () => go('form', { tireKey: tire.key });
+  const dupBtn = document.getElementById('dup-session');
+  if(dupBtn){
+    dupBtn.onclick = () => {
+      const latest = getLatestSession(tire);
+      go('form', { tireKey: tire.key, duplicateFrom: latest || null });
+    };
+  }
   document.getElementById('delete-tire').onclick = async () => {
     if(!confirm(`Supprimer définitivement le pneu ${tire.id} et tout son historique (${tire.sessions.length} roulage${tire.sessions.length>1?'s':''}) ? Cette action est irréversible.`)) return;
     await deleteTire(tire.key);
@@ -1094,9 +1104,12 @@ async function renderForm(v){
   const editSessionId = state.editSessionId || null;
   state.editSessionId = null;
   const editingSession = editSessionId ? tire.sessions.find(x=>x.id===editSessionId) : null;
+  const duplicateFrom = editingSession ? null : (state.duplicateFrom || null);
+  state.duplicateFrom = null;
+  const source = editingSession || duplicateFrom;
 
-  const prefillSession = editingSession ? editingSession.sessionType : (state.prefillSession || '');
-  const prefillLocation = editingSession ? editingSession.location : (state.prefillLocation || '');
+  const prefillSession = source ? source.sessionType : (state.prefillSession || '');
+  const prefillLocation = source ? source.location : (state.prefillLocation || '');
   state.prefillSession = null;
   state.prefillLocation = null;
 
@@ -1108,13 +1121,13 @@ async function renderForm(v){
     <header>
       <div class="back" id="form-back">‹</div>
       <div>
-        <h1>${editingSession ? 'Modifier le roulage' : 'Nouveau roulage'}</h1>
+        <h1>${editingSession ? 'Modifier le roulage' : (duplicateFrom ? 'Dupliquer le roulage' : 'Nouveau roulage')}</h1>
         <div class="sub">${escapeHtml(tire.id)}</div>
       </div>
     </header>
     <main class="form-sheet">
       <label>Date</label>
-      <input type="date" id="f-date" value="${editingSession ? editingSession.date : todayStr()}">
+      <input type="date" id="f-date" value="${source ? source.date : todayStr()}">
 
       <label>Lieu / événement</label>
       <input type="text" id="f-loc" placeholder="Ex. Charade, La Chatre…" value="${escapeHtml(prefillLocation)}">
@@ -1127,33 +1140,33 @@ async function renderForm(v){
       <div class="row2">
         <div>
           <label>Tours</label>
-          <input type="number" id="f-laps" inputmode="numeric" placeholder="0" value="${editingSession && editingSession.laps ? editingSession.laps : ''}">
+          <input type="number" id="f-laps" inputmode="numeric" placeholder="0" value="${source && source.laps ? source.laps : ''}">
         </div>
         <div>
           <label>Distance (km)</label>
-          <input type="number" id="f-km" inputmode="decimal" placeholder="0" value="${editingSession && editingSession.km ? editingSession.km : ''}">
+          <input type="number" id="f-km" inputmode="decimal" placeholder="0" value="${source && source.km ? source.km : ''}">
         </div>
       </div>
 
       <div class="row2">
         <div>
           <label>Pression à froid (bar)</label>
-          <input type="number" step="0.1" id="f-pcold" inputmode="decimal" placeholder="1.8" value="${editingSession && editingSession.pressureCold ? editingSession.pressureCold : ''}">
+          <input type="number" step="0.1" id="f-pcold" inputmode="decimal" placeholder="1.8" value="${source && source.pressureCold ? source.pressureCold : ''}">
         </div>
         <div>
           <label>Pression à chaud (bar)</label>
-          <input type="number" step="0.1" id="f-phot" inputmode="decimal" placeholder="2.1" value="${editingSession && editingSession.pressureHot ? editingSession.pressureHot : ''}">
+          <input type="number" step="0.1" id="f-phot" inputmode="decimal" placeholder="2.1" value="${source && source.pressureHot ? source.pressureHot : ''}">
         </div>
       </div>
 
       <label>Emplacement du pneu</label>
       <select id="f-position">
         <option value="">— Non renseigné —</option>
-        ${POSITIONS.map(p=>`<option value="${p.id}" ${ (editingSession ? editingSession.position : tire.position)===p.id ? 'selected':''}>${escapeHtml(p.label)}</option>`).join('')}
+        ${POSITIONS.map(p=>`<option value="${p.id}" ${ (source ? source.position : tire.position)===p.id ? 'selected':''}>${escapeHtml(p.label)}</option>`).join('')}
       </select>
 
       <label>Réglages (carrossage, parallélisme…)</label>
-      <textarea id="f-setup" placeholder="Ex. carrossage -2.5°, parallélisme +1mm">${editingSession ? escapeHtml(editingSession.setup||'') : ''}</textarea>
+      <textarea id="f-setup" placeholder="Ex. carrossage -2.5°, parallélisme +1mm">${source ? escapeHtml(source.setup||'') : ''}</textarea>
 
       <label>Notes d'usure</label>
       <textarea id="f-wear" placeholder="Ex. usure épaule extérieure, léger graining">${editingSession ? escapeHtml(editingSession.wear||'') : ''}</textarea>
