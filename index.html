@@ -105,6 +105,54 @@
   }
   .card-meta{display:flex;gap:14px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--chalk-dim);}
   .card-meta b{color:var(--chalk);font-weight:500;}
+  .card.card-hs{opacity:.55;}
+  .hs-pill{
+    font-family:'Oswald',sans-serif;font-size:10px;font-weight:700;letter-spacing:1px;
+    padding:2px 7px;border-radius:5px;background:#4a1414;color:#ff6b6b;margin-left:6px;
+  }
+  .hs-toggle{
+    display:block;width:100%;text-align:left;background:none;border:none;color:var(--chalk-dim);
+    font-family:'IBM Plex Mono',monospace;font-size:12px;padding:10px 2px;cursor:pointer;
+  }
+
+  /* Home tabs */
+  .hometabs{display:flex;gap:8px;margin-bottom:18px;}
+  .hometab{
+    flex:1;font-family:'Oswald',sans-serif;font-size:13px;font-weight:600;letter-spacing:.5px;
+    padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--asphalt-2);
+    color:var(--chalk-dim);cursor:pointer;
+  }
+  .hometab.active{background:var(--flag);border-color:var(--flag);color:#161616;}
+
+  /* Train view */
+  .train-list{display:flex;flex-direction:column;gap:8px;margin-bottom:20px;max-height:180px;overflow-y:auto;}
+  .train-item{
+    display:flex;justify-content:space-between;align-items:center;text-align:left;
+    background:var(--asphalt-2);border:1px solid var(--line);border-radius:10px;
+    padding:10px 14px;cursor:pointer;color:var(--chalk);
+  }
+  .train-item.active{border-color:var(--flag);background:var(--asphalt-3);}
+  .train-item-title{font-family:'Oswald',sans-serif;font-size:14px;font-weight:600;}
+  .train-item-date{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--chalk-dim);}
+
+  .car-view{
+    position:relative;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;
+    gap:16px;padding:10px;min-height:300px;align-items:stretch;
+  }
+  .car-body-svg{
+    position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:0;opacity:.3;pointer-events:none;
+  }
+  .car-slot{
+    position:relative;z-index:1;background:rgba(26,26,26,.9);border:1px solid var(--line);border-radius:14px;
+    padding:14px 10px;display:flex;flex-direction:column;justify-content:center;align-items:center;
+    text-align:center;border-top:4px solid var(--pos-color,var(--line));gap:4px;cursor:default;
+  }
+  .car-slot[data-tirekey]{cursor:pointer;}
+  .car-slot .slot-label{font-family:'Oswald',sans-serif;font-size:11px;font-weight:600;letter-spacing:1px;color:var(--pos-color,var(--chalk-dim));}
+  .car-slot .slot-tireid{font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;}
+  .car-slot .slot-empty{font-family:'IBM Plex Mono',monospace;font-size:15px;color:var(--chalk-dim);}
+  .car-slot .slot-sub{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--chalk-dim);}
+  .car-slot.is-hs{opacity:.55;}
 
   /* Scanner */
   .scan-wrap{position:fixed;inset:0;background:#000;z-index:20;display:flex;flex-direction:column;}
@@ -219,9 +267,9 @@ const POSITIONS = [
   {id:'ARD', label:'AR. DROIT', color:'#4CAF7D'},
   {id:'ARG', label:'AR. GAUCHE', color:'#4C9AFF'},
 ];
-const SESSION_TYPES = ['EL1','EL2','C1','C2','C3','C4'];
+const SESSION_TYPES = ['EL1','EL2','Q','C1','C2','C3','C4'];
 
-let state = { view: 'home', tireKey: null, filterPos: null, quaggaRunning: false };
+let state = { view: 'home', tireKey: null, filterPos: null, quaggaRunning: false, homeTab: 'pneus', showHS: false, trainKey: null };
 
 function posInfo(id){ return POSITIONS.find(p=>p.id===id) || {label:id||'—', color:'#FF5A1F'}; }
 function getLatestSession(t){
@@ -231,6 +279,28 @@ function getLatestSession(t){
 function getEffectivePosition(t){
   const latest = getLatestSession(t);
   return (latest && latest.position) || t.position || null;
+}
+function buildTrainGroups(tires){
+  const map = new Map();
+  tires.forEach(t=>{
+    (t.sessions||[]).forEach(s=>{
+      if(!s.location && !s.sessionType) return;
+      const locKey = (s.location||'').trim().toLowerCase();
+      const key = locKey+'|'+(s.sessionType||'');
+      if(!map.has(key)){
+        map.set(key, { key, location: s.location||'—', sessionType: s.sessionType||'', date: s.date||'', slots:{} });
+      }
+      const g = map.get(key);
+      if(s.date && s.date > g.date) g.date = s.date;
+      if(s.position){
+        const existing = g.slots[s.position];
+        if(!existing || (s.date||'') >= (existing.date||'')){
+          g.slots[s.position] = { tireId: t.id, tireKey: t.key, km: s.km, laps: s.laps, date: s.date, hs: !!t.hs };
+        }
+      }
+    });
+  });
+  return [...map.values()].sort((a,b)=> (b.date||'').localeCompare(a.date||''));
 }
 function latestSession(t){
   if(!t.sessions || t.sessions.length===0) return null;
@@ -314,7 +384,7 @@ async function findOrCreateTire(rawId){
   let tire = await getTire(key);
   let isNew = false;
   if(!tire){
-    tire = { id: rawId, key, position: null, createdAt: Date.now(), sessions: [] };
+    tire = { id: rawId, key, position: null, hs: false, createdAt: Date.now(), sessions: [] };
     isNew = true;
     const idx = await getIndex();
     if(!idx.includes(key)){ idx.push(key); await saveIndex(idx); }
@@ -442,6 +512,25 @@ function render(){
 function go(view, opts={}){ state = {...state, ...opts, view}; render(); }
 
 // ---------- Home ----------
+function tireCardHtml(t){
+  const info = posInfo(getEffectivePosition(t));
+  const last = getLatestSession(t);
+  return `
+    <div class="card ${t.hs?'card-hs':''}" style="--pos-color:${info.color}" data-key="${t.key}">
+      <div class="card-top">
+        <span class="card-id">${escapeHtml(t.id)}</span>
+        <span>
+          <span class="pos-badge" style="--pos-color:${info.color}">${info.label}</span>
+          ${t.hs?'<span class="hs-pill">HS</span>':''}
+        </span>
+      </div>
+      <div class="card-meta">
+        <span><b>${t.sessions.length}</b> roulage${t.sessions.length>1?'s':''}</span>
+        ${last? `<span>dernier : <b>${fmtDate(last.date)}</b></span>` : ''}
+      </div>
+    </div>`;
+}
+
 async function renderHome(v){
   v.innerHTML = `
     <header>
@@ -452,7 +541,7 @@ async function renderHome(v){
       <button class="back" id="data-btn" title="Sauvegarde / export">⇅</button>
     </header>
     <main id="home-main"><p style="color:var(--chalk-dim);font-family:'IBM Plex Mono',monospace;font-size:13px;">Chargement…</p></main>
-    <button class="btn btn-primary fab" id="scan-fab">＋ &nbsp;Scanner un pneu</button>
+    <button class="btn btn-primary fab" id="scan-fab" style="${state.homeTab==='train'?'display:none;':''}">＋ &nbsp;Scanner un pneu</button>
   `;
   document.getElementById('scan-fab').onclick = () => go('scan');
   document.getElementById('data-btn').onclick = showDataSheet;
@@ -466,21 +555,48 @@ async function renderHome(v){
   });
 
   const main = document.getElementById('home-main');
-  const filtered = state.filterPos ? tires.filter(t=>getEffectivePosition(t)===state.filterPos) : tires;
+
+  const tabsHtml = `
+    <div class="hometabs">
+      <button class="hometab ${state.homeTab!=='train'?'active':''}" id="tab-pneus">Pneus</button>
+      <button class="hometab ${state.homeTab==='train'?'active':''}" id="tab-train">Train</button>
+    </div>`;
 
   if(tires.length===0){
     main.innerHTML = `
+      ${tabsHtml}
       <div class="empty">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M21 12h-3M6 12H3"/></svg>
         <p>Aucun pneu enregistré pour l'instant. Scanne le code-barres d'un pneu pour commencer son historique de roulage.</p>
       </div>`;
+    bindHomeTabs(main);
     return;
   }
+
+  if(state.homeTab==='train'){
+    main.innerHTML = `${tabsHtml}<div id="train-zone"></div>`;
+    bindHomeTabs(main);
+    renderTrainTab(document.getElementById('train-zone'), tires);
+    return;
+  }
+
+  const activeTires = tires.filter(t=>!t.hs);
+  const hsTires = tires.filter(t=>t.hs);
+  const filtered = state.filterPos ? activeTires.filter(t=>getEffectivePosition(t)===state.filterPos) : activeTires;
 
   const chips = ['<button class="chip '+(!state.filterPos?'active':'')+'" data-p="">TOUS</button>']
     .concat(POSITIONS.map(p=>`<button class="chip ${state.filterPos===p.id?'active':''}" data-p="${p.id}" style="${state.filterPos===p.id?`background:${p.color};border-color:${p.color}`:''}">${p.label}</button>`));
 
-  main.innerHTML = `<div class="chips">${chips.join('')}</div><div id="cards"></div>`;
+  main.innerHTML = `
+    ${tabsHtml}
+    <div class="chips">${chips.join('')}</div>
+    <div id="cards"></div>
+    ${hsTires.length ? `
+      <button class="hs-toggle" id="hs-toggle">${state.showHS?'▾':'▸'} Pneus HS (${hsTires.length})</button>
+      ${state.showHS ? `<div id="hs-cards"></div>` : ''}
+    ` : ''}
+  `;
+  bindHomeTabs(main);
   main.querySelectorAll('.chip').forEach(c=>{
     c.onclick = () => go('home', {filterPos: c.dataset.p || null});
   });
@@ -488,25 +604,81 @@ async function renderHome(v){
   const cards = document.getElementById('cards');
   if(filtered.length===0){
     cards.innerHTML = `<div class="empty"><p>Aucun pneu sur cette position.</p></div>`;
+  } else {
+    cards.innerHTML = filtered.map(tireCardHtml).join('');
+    cards.querySelectorAll('.card').forEach(c=>{
+      c.onclick = () => go('detail', {tireKey: c.dataset.key});
+    });
+  }
+
+  const hsToggle = document.getElementById('hs-toggle');
+  if(hsToggle){
+    hsToggle.onclick = () => go('home', {showHS: !state.showHS});
+  }
+  const hsCards = document.getElementById('hs-cards');
+  if(hsCards){
+    hsCards.innerHTML = hsTires.map(tireCardHtml).join('');
+    hsCards.querySelectorAll('.card').forEach(c=>{
+      c.onclick = () => go('detail', {tireKey: c.dataset.key});
+    });
+  }
+}
+function bindHomeTabs(main){
+  main.querySelector('#tab-pneus').onclick = () => go('home', {homeTab:'pneus'});
+  main.querySelector('#tab-train').onclick = () => go('home', {homeTab:'train'});
+}
+
+function renderTrainTab(zone, tires){
+  const groups = buildTrainGroups(tires);
+  if(groups.length===0){
+    zone.innerHTML = `<div class="empty"><p>Aucun roulage enregistré pour l'instant. Ajoute des roulages avec un lieu renseigné pour voir apparaître le train.</p></div>`;
     return;
   }
-  cards.innerHTML = filtered.map(t=>{
-    const info = posInfo(getEffectivePosition(t));
-    const last = getLatestSession(t);
-    return `
-      <div class="card" style="--pos-color:${info.color}" data-key="${t.key}">
-        <div class="card-top">
-          <span class="card-id">${escapeHtml(t.id)}</span>
-          <span class="pos-badge" style="--pos-color:${info.color}">${info.label}</span>
-        </div>
-        <div class="card-meta">
-          <span><b>${t.sessions.length}</b> roulage${t.sessions.length>1?'s':''}</span>
-          ${last? `<span>dernier : <b>${fmtDate(last.date)}</b></span>` : ''}
-        </div>
+  if(!state.trainKey || !groups.find(g=>g.key===state.trainKey)){
+    state.trainKey = groups[0].key;
+  }
+  const list = groups.map(g=>`
+    <button class="train-item ${g.key===state.trainKey?'active':''}" data-key="${g.key}">
+      <span class="train-item-title">${escapeHtml(g.location)}${g.sessionType?` · ${escapeHtml(g.sessionType)}`:''}</span>
+      <span class="train-item-date">${g.date?fmtDate(g.date):''}</span>
+    </button>`).join('');
+
+  const active = groups.find(g=>g.key===state.trainKey);
+  const slotHtml = (posId)=>{
+    const info = posInfo(posId);
+    const entry = active.slots[posId];
+    if(!entry){
+      return `<div class="car-slot" style="--pos-color:${info.color}">
+        <span class="slot-label">${info.label}</span>
+        <span class="slot-empty">—</span>
       </div>`;
-  }).join('');
-  cards.querySelectorAll('.card').forEach(c=>{
-    c.onclick = () => go('detail', {tireKey: c.dataset.key});
+    }
+    return `<div class="car-slot ${entry.hs?'is-hs':''}" style="--pos-color:${info.color}" data-tirekey="${entry.tireKey}">
+      <span class="slot-label">${info.label}</span>
+      <span class="slot-tireid">${escapeHtml(entry.tireId)}${entry.hs?' <span class=\"hs-pill\">HS</span>':''}</span>
+      <span class="slot-sub">${entry.km?`${entry.km} km`:''}${entry.km && entry.laps?' · ':''}${entry.laps?`${entry.laps} tr`:''}</span>
+    </div>`;
+  };
+
+  zone.innerHTML = `
+    <div class="train-list">${list}</div>
+    <div class="car-view">
+      ${slotHtml('AVG')}
+      ${slotHtml('AVD')}
+      <svg class="car-body-svg" width="120" height="230" viewBox="0 0 120 230" fill="none">
+        <rect x="10" y="10" width="100" height="210" rx="40" stroke="var(--line)" stroke-width="3"/>
+        <line x1="10" y1="72" x2="110" y2="72" stroke="var(--line)" stroke-width="2"/>
+        <line x1="10" y1="158" x2="110" y2="158" stroke="var(--line)" stroke-width="2"/>
+      </svg>
+      ${slotHtml('ARG')}
+      ${slotHtml('ARD')}
+    </div>
+  `;
+  zone.querySelectorAll('.train-item').forEach(b=>{
+    b.onclick = () => go('home', { homeTab:'train', trainKey: b.dataset.key });
+  });
+  zone.querySelectorAll('.car-slot[data-tirekey]').forEach(el=>{
+    el.onclick = () => go('detail', {tireKey: el.dataset.tirekey});
   });
 }
 
@@ -686,7 +858,7 @@ function fiaDecodeRegion(srcCanvas, reg, scale){
 }
 
 // ---------- Scanner (caméra gérée en direct + décodage ZXing-C++ WebAssembly) ----------
-const APP_VERSION = 'v9.3';
+const APP_VERSION = 'v10';
 let detectionLocked = false;
 let recentReads = [];
 let scanStream = null;
@@ -1008,7 +1180,7 @@ async function renderDetail(v){
     <header>
       <div class="back" id="det-back">‹</div>
       <div style="flex:1;min-width:0;">
-        <h1>${escapeHtml(tire.id)}</h1>
+        <h1>${escapeHtml(tire.id)} ${tire.hs?'<span class="hs-pill">HS</span>':''}</h1>
         <div class="sub">Enregistré le ${new Date(tire.createdAt).toLocaleDateString('fr-FR')}</div>
       </div>
       <button class="header-delete" id="delete-tire" title="Supprimer ce pneu">🗑</button>
@@ -1020,10 +1192,11 @@ async function renderDetail(v){
         <div class="stat"><b>${totalKm||'—'}</b><span>Km</span></div>
       </div>
 
-      <div class="row2" style="margin-bottom:22px;">
+      <div class="row2" style="margin-bottom:12px;">
         <button class="btn btn-primary" id="add-session" style="margin-bottom:0;">＋ Ajouter un roulage</button>
         ${tire.sessions.length ? `<button class="btn btn-ghost" id="dup-session" style="margin-bottom:0;">⧉ Dupliquer le dernier</button>` : ''}
       </div>
+      <button class="btn btn-ghost" id="toggle-hs" style="margin-bottom:22px;">${tire.hs ? '✅ Remettre en service' : '🚫 Déclarer HS'}</button>
 
       <div id="history"></div>
     </main>
@@ -1037,6 +1210,12 @@ async function renderDetail(v){
       go('form', { tireKey: tire.key, duplicateFrom: latest || null });
     };
   }
+  document.getElementById('toggle-hs').onclick = async () => {
+    tire.hs = !tire.hs;
+    await saveTire(tire.key, tire);
+    showToast(tire.hs ? 'Pneu déclaré HS — historique conservé' : 'Pneu remis en service');
+    go('detail', { tireKey: tire.key });
+  };
   document.getElementById('delete-tire').onclick = async () => {
     if(!confirm(`Supprimer définitivement le pneu ${tire.id} et tout son historique (${tire.sessions.length} roulage${tire.sessions.length>1?'s':''}) ? Cette action est irréversible.`)) return;
     await deleteTire(tire.key);

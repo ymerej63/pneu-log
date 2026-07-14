@@ -2,7 +2,7 @@
 // Stratégie : cache-first avec mise à jour en arrière-plan (stale-while-revalidate)
 // pour que l'app fonctionne intégralement hors ligne (paddock sans réseau).
 
-const CACHE = 'suivi-pneus-v12';
+const CACHE = 'suivi-pneus-v13';
 
 const PRECACHE = [
   './',
