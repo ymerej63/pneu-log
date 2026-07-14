@@ -224,6 +224,21 @@ const SESSION_TYPES = ['EL1','EL2','C1','C2','C3','C4'];
 let state = { view: 'home', tireKey: null, filterPos: null, quaggaRunning: false };
 
 function posInfo(id){ return POSITIONS.find(p=>p.id===id) || {label:id||'—', color:'#FF5A1F'}; }
+function getLatestSession(t){
+  if(!t.sessions || !t.sessions.length) return null;
+  return [...t.sessions].sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.id-a.id))[0];
+}
+function getEffectivePosition(t){
+  const latest = getLatestSession(t);
+  return (latest && latest.position) || t.position || null;
+}
+function latestSession(t){
+  if(!t.sessions || t.sessions.length===0) return null;
+  return t.sessions.reduce((a,b)=>{
+    const c = (b.date||'').localeCompare(a.date||'') || (b.id-a.id);
+    return c>0 ? b : a;
+  });
+}
 function sanitizeKey(raw){ return ('t_'+raw).replace(/[^a-zA-Z0-9_.:-]/g,'_').slice(0,190); }
 function todayStr(){ return new Date().toISOString().slice(0,10); }
 function fmtDate(d){ const [y,m,day]=d.split('-'); return `${day}/${m}/${y}`; }
@@ -445,13 +460,13 @@ async function renderHome(v){
   const idx = await getIndex();
   const tires = (await Promise.all(idx.map(getTire))).filter(Boolean);
   tires.sort((a,b)=>{
-    const la = a.sessions.length ? a.sessions[a.sessions.length-1].date : '';
-    const lb = b.sessions.length ? b.sessions[b.sessions.length-1].date : '';
+    const la = getLatestSession(a)?.date || '';
+    const lb = getLatestSession(b)?.date || '';
     return lb.localeCompare(la);
   });
 
   const main = document.getElementById('home-main');
-  const filtered = state.filterPos ? tires.filter(t=>t.position===state.filterPos) : tires;
+  const filtered = state.filterPos ? tires.filter(t=>getEffectivePosition(t)===state.filterPos) : tires;
 
   if(tires.length===0){
     main.innerHTML = `
@@ -476,8 +491,8 @@ async function renderHome(v){
     return;
   }
   cards.innerHTML = filtered.map(t=>{
-    const info = posInfo(t.position);
-    const last = t.sessions[t.sessions.length-1];
+    const info = posInfo(getEffectivePosition(t));
+    const last = getLatestSession(t);
     return `
       <div class="card" style="--pos-color:${info.color}" data-key="${t.key}">
         <div class="card-top">
@@ -671,7 +686,7 @@ function fiaDecodeRegion(srcCanvas, reg, scale){
 }
 
 // ---------- Scanner (caméra gérée en direct + décodage ZXing-C++ WebAssembly) ----------
-const APP_VERSION = 'v9';
+const APP_VERSION = 'v9.1';
 let detectionLocked = false;
 let recentReads = [];
 let scanStream = null;
