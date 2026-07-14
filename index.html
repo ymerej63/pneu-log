@@ -670,7 +670,7 @@ function fiaDecodeRegion(srcCanvas, reg, scale){
 }
 
 // ---------- Scanner (caméra gérée en direct + décodage ZXing-C++ WebAssembly) ----------
-const APP_VERSION = 'v7';
+const APP_VERSION = 'v8';
 let detectionLocked = false;
 let recentReads = [];
 let scanStream = null;
@@ -1023,7 +1023,7 @@ async function renderDetail(v){
     hist.innerHTML = `<div class="empty"><p>Aucun roulage enregistré pour ce pneu.</p></div>`;
     return;
   }
-  const ordered = [...tire.sessions].reverse();
+  const ordered = [...tire.sessions].sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.id-a.id));
   hist.innerHTML = ordered.map((s, i)=>{
     const num = tire.sessions.length - i;
     const meta = [];
@@ -1130,8 +1130,11 @@ async function renderForm(v){
         </div>
       </div>
 
-      <label>Température pneu (°C)</label>
-      <input type="number" id="f-temp" inputmode="numeric" placeholder="Ex. 65" value="${editingSession && editingSession.temp ? editingSession.temp : ''}">
+      <label>Emplacement du pneu</label>
+      <select id="f-position">
+        <option value="">— Non renseigné —</option>
+        ${POSITIONS.map(p=>`<option value="${p.id}" ${ (editingSession ? editingSession.position : tire.position)===p.id ? 'selected':''}>${escapeHtml(p.label)}</option>`).join('')}
+      </select>
 
       <label>Réglages (carrossage, parallélisme…)</label>
       <textarea id="f-setup" placeholder="Ex. carrossage -2.5°, parallélisme +1mm">${editingSession ? escapeHtml(editingSession.setup||'') : ''}</textarea>
@@ -1153,12 +1156,11 @@ async function renderForm(v){
       date: document.getElementById('f-date').value || todayStr(),
       location: document.getElementById('f-loc').value.trim(),
       sessionType: document.getElementById('f-type').value,
-      position: editingSession ? editingSession.position : (tire.position || null),
+      position: document.getElementById('f-position').value || null,
       laps: document.getElementById('f-laps').value,
       km: document.getElementById('f-km').value,
       pressureCold: document.getElementById('f-pcold').value,
       pressureHot: document.getElementById('f-phot').value,
-      temp: document.getElementById('f-temp').value,
       setup: document.getElementById('f-setup').value.trim(),
       wear: document.getElementById('f-wear').value.trim(),
     };
