@@ -164,6 +164,7 @@
   .session{border-left:2px solid var(--line);padding:2px 0 14px 16px;position:relative;cursor:pointer;}
   .session::before{content:'';position:absolute;left:-5px;top:4px;width:9px;height:9px;border-radius:50%;background:var(--flag);}
   .session .s-num{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--chalk-dim);display:flex;justify-content:space-between;align-items:center;}
+  .session .s-num-right{display:flex;align-items:center;gap:8px;}
   .session .s-chevron{transition:transform .2s;font-size:13px;}
   .session.open .s-chevron{transform:rotate(180deg);}
   .session .s-title{font-family:'Oswald',sans-serif;font-weight:600;font-size:15px;margin:2px 0 0;}
@@ -670,7 +671,7 @@ function fiaDecodeRegion(srcCanvas, reg, scale){
 }
 
 // ---------- Scanner (caméra gérée en direct + décodage ZXing-C++ WebAssembly) ----------
-const APP_VERSION = 'v8';
+const APP_VERSION = 'v9';
 let detectionLocked = false;
 let recentReads = [];
 let scanStream = null;
@@ -986,7 +987,7 @@ async function renderDetail(v){
   const tire = await getTire(state.tireKey);
   if(!tire){ go('home'); return; }
   const totalLaps = tire.sessions.reduce((s,x)=>s+(Number(x.laps)||0),0);
-  const totalKm = tire.sessions.reduce((s,x)=>s+(Number(x.km)||0),0);
+  const totalKm = Math.round(tire.sessions.reduce((s,x)=>s+(Number(x.km)||0),0) * 100) / 100;
 
   v.innerHTML = `
     <header>
@@ -1034,7 +1035,7 @@ async function renderDetail(v){
     const sInfo = posInfo(s.position);
     return `
       <div class="session" data-idx="${i}">
-        <div class="s-num">ROULAGE #${num} — ${fmtDate(s.date)} <span class="s-chevron">▾</span></div>
+        <div class="s-num">ROULAGE #${num} — ${fmtDate(s.date)} <span class="s-num-right">${s.km ? `${s.km} km` : ''}<span class="s-chevron">▾</span></span></div>
         <div class="s-title">${escapeHtml(s.location) || 'Lieu non renseigné'} ${s.sessionType ? '· '+escapeHtml(s.sessionType) : ''}
           ${s.position ? `<span class="pos-badge" style="--pos-color:${sInfo.color};margin-left:6px;">${sInfo.label}</span>` : ''}
         </div>
