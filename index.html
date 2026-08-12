@@ -15,14 +15,11 @@
 <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Barlow+Condensed:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <script defer src="https://cdn.jsdelivr.net/npm/zxing-wasm@2/dist/iife/reader/index.js"></script>
 <style>
-  /* OCR-B — la police des étiquettes à code-barres (Frutiger, 1968).
-     Version libre sous SIL Open Font License. */
-  @font-face{
-    font-family:'OCR-B';
-    src:url('https://cdn.jsdelivr.net/gh/raisty/OCR-B@1.1/dist/OCR-B.ttf') format('truetype'),
-        url('https://cdn.jsdelivr.net/gh/raisty/OCR-B@1.1/dist/OCR-B.otf') format('opentype');
-    font-weight:400;font-style:normal;font-display:swap;
-  }
+  /* OCR-B — la police des étiquettes à code-barres (Frutiger, 1968), SIL OFL.
+     Elle n'est PAS chargée par @font-face : en mode « app » (ajout à l'écran
+     d'accueil), iOS refuse souvent les polices distantes servies via le service
+     worker. Elle est donc téléchargée en JS et injectée via l'API FontFace
+     (voir plus bas), ce qui fonctionne dans les deux modes. */
   :root{
     --yel:#F0C000;
     --yel-dim:#9A7D0A;
@@ -37,21 +34,22 @@
     --green:#63C97A;
     --f-disp:'Archivo Black',sans-serif;
     --f-lbl:'Barlow Condensed',sans-serif;
-    --f-num:'OCR-B','Space Mono',monospace;
+    /* fallback tant que (ou si) OCR-B n'est pas disponible */
+    --f-num:'Space Mono',ui-monospace,monospace;
   }
+  html.ocrb{ --f-num:'OCR-B','Space Mono',ui-monospace,monospace; }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html,body{
     margin:0;height:100%;background:var(--blk);color:var(--off);
     font-family:var(--f-lbl);overscroll-behavior:none;
+    /* iOS gonfle tout seul certains textes en mode « app » (ecran d'accueil) :
+       c'est ce qui rendait les tailles incoherentes par rapport au navigateur. */
+    -webkit-text-size-adjust:100%;text-size-adjust:100%;
   }
   #app{
     max-width:480px;margin:0 auto;min-height:100vh;min-height:100dvh;
     display:flex;flex-direction:column;position:relative;background:var(--blk);
   }
-
-  /* Zéro dessiné : le DOM conserve un vrai « 0 » (recherche, copie, export). */
-  .z0{display:inline-block;width:1ch;height:.72em;vertical-align:baseline;position:relative;}
-  .z0 svg{position:absolute;left:50%;transform:translateX(-50%);height:100%;width:auto;}
 
   .strip{
     height:7px;flex-shrink:0;
@@ -426,6 +424,39 @@
   }
   .toast.show{opacity:1;}
 </style>
+
+<script>
+/* ---------- Chargement d'OCR-B via l'API FontFace ----------
+   Pourquoi pas un simple @font-face ?
+   Sur iPhone, quand l'app est lancee depuis l'ecran d'accueil (mode standalone),
+   Safari refuse regulierement les polices distantes passees par le service
+   worker : les chiffres retombaient alors sur une police de secours.
+   Ici on telecharge le fichier en fetch() (que le SW sait mettre en cache pour
+   l'usage hors reseau), puis on l'injecte directement dans document.fonts.
+   Si ca echoue, --f-num garde Space Mono : l'app reste lisible. */
+(function(){
+  if (!('FontFace' in window) || !document.fonts) return;
+  var SRC = [
+    'https://cdn.jsdelivr.net/gh/raisty/OCR-B@1.1/dist/OCR-B.ttf',
+    'https://cdn.jsdelivr.net/gh/raisty/OCR-B@1.1/dist/OCR-B.otf'
+  ];
+  (async function(){
+    for (var i = 0; i < SRC.length; i++) {
+      try {
+        var res = await fetch(SRC[i], { mode: 'cors', credentials: 'omit' });
+        if (!res.ok) continue;
+        var buf = await res.arrayBuffer();
+        if (!buf || buf.byteLength < 1000) continue;   // reponse opaque / vide
+        var ff = new FontFace('OCR-B', buf, { style: 'normal', weight: '400' });
+        await ff.load();
+        document.fonts.add(ff);
+        document.documentElement.classList.add('ocrb');
+        return;
+      } catch (e) { /* on essaie la source suivante */ }
+    }
+  })();
+})();
+</script>
 </head>
 <body>
 <div id="app">
@@ -441,7 +472,7 @@ const POSITIONS = [
   {id:'ARG', label:'AR. GAUCHE', color:'#4C9AFF'},
 ];
 const SESSION_TYPES = ['EL1','EL2','Q','C1','C2','C3','C4'];
-const APP_VERSION = 'v13';
+const APP_VERSION = 'v14';
 
 let state = { view: 'home', tireKey: null, filterPos: null, homeTab: 'pneus', showHS: false, trainKey: null };
 
@@ -767,13 +798,6 @@ function go(view, opts={}){
 }
 
 // ---------- Helpers de rendu (étiquette FIA) ----------
-// Le zéro d'OCR-B porte une pastille centrale absente des vraies étiquettes.
-// On le remplace par un ovale vectoriel : le texte du DOM reste un vrai « 0 »,
-// donc recherche, copier-coller et exports ne sont pas affectés.
-const ZERO_SVG = '<span class="z0"><svg viewBox="0 0 72 100">'
-  + '<rect x="7" y="7" width="58" height="86" rx="29" ry="29" fill="none" '
-  + 'stroke="currentColor" stroke-width="12"/></svg></span>';
-function z(text){ return String(text ?? '').replace(/0/g, ZERO_SVG); }
 
 // Code-barres Interleaved 2 of 5 — même symbologie que les étiquettes FIA.
 const ITF_ENC = {'0':'NNWWN','1':'WNNNW','2':'NWNNW','3':'WWNNN','4':'NNWNW',
@@ -815,14 +839,14 @@ function tireCardHtml(t){
   const last = getLatestSession(t);
   const n = t.sessions.length;
   const km = Math.round(t.sessions.reduce((s,x)=>s+(Number(x.km)||0),0) * 10) / 10;
-  const bits = [`<b>${z(n)}</b> roulage${n>1?'s':''}`];
-  if(km) bits.push(`<b>${z(nf(km))}</b> km`);
-  if(last && last.date) bits.push(z(fmtDateShort(last.date)));
+  const bits = [`<b>${n}</b> roulage${n>1?'s':''}`];
+  if(km) bits.push(`<b>${nf(km)}</b> km`);
+  if(last && last.date) bits.push(fmtDateShort(last.date));
   return `
     <div class="card ${t.hs?'card-hs':''}" data-key="${t.key}">
       <div class="vig"><span>${t.hs ? 'HS' : (pos || '—')}</span></div>
       <div class="info">
-        <div class="code">${z(escapeHtml(t.id))}</div>
+        <div class="code">${escapeHtml(t.id)}</div>
         ${barcodeFor(t.id, 132, 12, '#F0C000', .55)}
         <div class="sub">${bits.join(' · ')}</div>
       </div>
@@ -857,8 +881,8 @@ async function renderHome(v){
   const totalRuns = tires.reduce((s,t)=>s+(t.sessions?t.sessions.length:0), 0);
   const count = document.getElementById('mast-count');
   if(count){
-    count.innerHTML = z(String(tires.length).padStart(2,'0')) + ' pneus · '
-                    + z(String(totalRuns).padStart(2,'0')) + ' roulages';
+    count.innerHTML = String(tires.length).padStart(2,'0') + ' pneus · '
+                    + String(totalRuns).padStart(2,'0') + ' roulages';
   }
 
   const main = document.getElementById('home-main');
@@ -960,11 +984,11 @@ function renderTrainTab(zone, tires){
       </div>`;
     }
     const sub = [];
-    if(entry.km) sub.push(z(nf(entry.km)) + ' km');
-    if(entry.laps) sub.push(z(entry.laps) + ' tr');
+    if(entry.km) sub.push(nf(entry.km) + ' km');
+    if(entry.laps) sub.push(entry.laps + ' tr');
     return `<div class="car-slot ${entry.hs?'is-hs':''}" data-tirekey="${entry.tireKey}">
       <span class="slot-label">${entry.hs ? 'HS · '+info.label : info.label}</span>
-      <span class="slot-tireid">${z(escapeHtml(entry.tireId))}</span>
+      <span class="slot-tireid">${escapeHtml(entry.tireId)}</span>
       <span class="slot-sub">${sub.join(' · ') || '—'}</span>
       ${barcodeFor(entry.tireId, 108, 11, '#F0C000', .5)}
     </div>`;
@@ -977,8 +1001,8 @@ function renderTrainTab(zone, tires){
       ${slotHtml('AVG')}${slotHtml('AVD')}
       ${slotHtml('ARG')}${slotHtml('ARD')}
     </div>
-    <div class="legend">TRAIN ${z(filled)}/${z(4)} POSITIONS<br>
-      ${escapeHtml(active.location)}${active.sessionType?' · '+escapeHtml(active.sessionType):''}${active.date?' · '+z(fmtDateShort(active.date)):''}
+    <div class="legend">TRAIN ${filled}/4 POSITIONS<br>
+      ${escapeHtml(active.location)}${active.sessionType?' · '+escapeHtml(active.sessionType):''}${active.date?' · '+fmtDateShort(active.date):''}
     </div>
   `;
   zone.querySelectorAll('.train-item').forEach(b=>{
@@ -1428,7 +1452,7 @@ function showPositionPicker(tire){
   sheet.className = 'manual-sheet';
   sheet.innerHTML = `
     <div class="tagline" style="margin:-18px -16px 14px;">
-      <span class="tcode">${z(escapeHtml(tire.id))}</span>
+      <span class="tcode">${escapeHtml(tire.id)}</span>
       ${tire.position?`<span class="tpos">${tire.position}</span>`:''}
     </div>
 
@@ -1502,14 +1526,14 @@ async function renderDetail(v){
     </div>
     <div class="hero ${tire.hs?'is-hs':''}">
       ${barcodeFor(tire.id, 205, 34, '#141310', 1)}
-      <div class="hcode">${z(escapeHtml(tire.id))}</div>
+      <div class="hcode">${escapeHtml(tire.id)}</div>
       <div class="hpos">${tire.hs ? 'HS' : (pos || '—')}</div>
     </div>
     <div class="strip"></div>
     <div class="stats">
-      <div><div class="sv">${z(String(tire.sessions.length).padStart(2,'0'))}</div><div class="sk">Roulages</div></div>
-      <div><div class="sv">${totalKm ? z(nf(totalKm)) : '—'}</div><div class="sk">Km cumulés</div></div>
-      <div><div class="sv">${last && last.date ? z(fmtDateShort(last.date).slice(0,5)) : '—'}</div><div class="sk">Dernier</div></div>
+      <div><div class="sv">${String(tire.sessions.length).padStart(2,'0')}</div><div class="sk">Roulages</div></div>
+      <div><div class="sv">${totalKm ? nf(totalKm) : '—'}</div><div class="sk">Km cumulés</div></div>
+      <div><div class="sv">${last && last.date ? fmtDateShort(last.date).slice(0,5) : '—'}</div><div class="sk">Dernier</div></div>
     </div>
     <main>
       <div class="actions">
@@ -1517,7 +1541,7 @@ async function renderDetail(v){
         ${tire.sessions.length ? `<button class="btn btn-ghost" id="dup-session" style="flex:0 0 108px;">⧉ Dupliquer</button>` : ''}
       </div>
       <button class="btn ${tire.hs?'btn-ghost':'btn-danger'}" id="toggle-hs">${tire.hs ? '✅ Remettre en service' : '🚫 Déclarer HS'}</button>
-      <div class="sect"><span>Historique</span><span>${z(totalLaps)} tours cumulés</span></div>
+      <div class="sect"><span>Historique</span><span>${totalLaps} tours cumulés</span></div>
       <div id="history"></div>
     </main>
   `;
@@ -1550,21 +1574,21 @@ async function renderDetail(v){
   hist.innerHTML = ordered.map((s, i)=>{
     const num = tire.sessions.length - i;
     const head = [];
-    if(s.km) head.push(z(nf(s.km)) + ' km');
-    if(s.laps) head.push(z(s.laps) + ' tours');
+    if(s.km) head.push(nf(s.km) + ' km');
+    if(s.laps) head.push(s.laps + ' tours');
     const cells = [];
-    if(s.pressureCold) cells.push(`<div><div class="gk">Pression froid</div><div class="gv">${z(s.pressureCold)} <em>bar</em></div></div>`);
-    if(s.pressureHot)  cells.push(`<div><div class="gk">Pression chaud</div><div class="gv">${z(s.pressureHot)} <em>bar</em></div></div>`);
-    if(s.laps) cells.push(`<div><div class="gk">Tours</div><div class="gv">${z(s.laps)}</div></div>`);
-    if(s.km)   cells.push(`<div><div class="gk">Distance</div><div class="gv">${z(nf(s.km))} <em>km</em></div></div>`);
+    if(s.pressureCold) cells.push(`<div><div class="gk">Pression froid</div><div class="gv">${s.pressureCold} <em>bar</em></div></div>`);
+    if(s.pressureHot)  cells.push(`<div><div class="gk">Pression chaud</div><div class="gv">${s.pressureHot} <em>bar</em></div></div>`);
+    if(s.laps) cells.push(`<div><div class="gk">Tours</div><div class="gv">${s.laps}</div></div>`);
+    if(s.km)   cells.push(`<div><div class="gk">Distance</div><div class="gv">${nf(s.km)} <em>km</em></div></div>`);
     const nothing = !cells.length && !s.setup && !s.wear;
     return `
       <div class="session ${opened.has(s.id)?'open':''}" data-sid="${s.id}">
         <div class="run-head">
-          <div class="run-num">${z(String(num).padStart(2,'0'))}</div>
+          <div class="run-num">${String(num).padStart(2,'0')}</div>
           <div class="run-main">
             <div class="run-t">${escapeHtml(s.location) || 'Lieu non renseigné'}${s.sessionType ? ' · '+escapeHtml(s.sessionType) : ''}</div>
-            <div class="run-s">${z(fmtDateShort(s.date))}${head.length?' · '+head.join(' · '):''}${s.position?' · '+s.position:''}</div>
+            <div class="run-s">${fmtDateShort(s.date)}${head.length?' · '+head.join(' · '):''}${s.position?' · '+s.position:''}</div>
           </div>
           <div class="run-chev">▾</div>
         </div>
@@ -1649,7 +1673,7 @@ async function renderForm(v){
       <span class="navright"></span>
     </div>
     <div class="tagline">
-      <span class="tcode">${z(escapeHtml(tire.id))}</span>
+      <span class="tcode">${escapeHtml(tire.id)}</span>
       ${selPos?`<span class="tpos" id="tag-pos">${selPos}</span>`:'<span class="tpos" id="tag-pos" style="display:none;"></span>'}
     </div>
     <div class="strip"></div>
