@@ -4,276 +4,431 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>SUIVI DES PNEUS</title>
-<meta name="theme-color" content="#121417">
+<meta name="theme-color" content="#0E0E0C">
 <link rel="manifest" href="manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Pneus">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Barlow+Condensed:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <script defer src="https://cdn.jsdelivr.net/npm/zxing-wasm@2/dist/iife/reader/index.js"></script>
 <style>
+  /* OCR-B — la police des étiquettes à code-barres (Frutiger, 1968).
+     Version libre sous SIL Open Font License. */
+  @font-face{
+    font-family:'OCR-B';
+    src:url('https://cdn.jsdelivr.net/gh/raisty/OCR-B@1.1/dist/OCR-B.ttf') format('truetype'),
+        url('https://cdn.jsdelivr.net/gh/raisty/OCR-B@1.1/dist/OCR-B.otf') format('opentype');
+    font-weight:400;font-style:normal;font-display:swap;
+  }
   :root{
-    --asphalt:#121417;
-    --asphalt-2:#1b1e23;
-    --asphalt-3:#24282f;
-    --chalk:#EDEAE3;
-    --chalk-dim:#9AA0A8;
-    --flag:#FF5A1F;
-    --flag-dim:#7a2c11;
-    --amber:#FFB020;
-    --line:#2e333b;
-    --good:#4CAF7D;
+    --yel:#F0C000;
+    --yel-dim:#9A7D0A;
+    --blk:#0E0E0C;
+    --card:#181815;
+    --card2:#201F1A;
+    --line:#2E2C25;
+    --off:#F2EFE4;
+    --grey:#8B8779;
+    --red:#D8341F;
+    --red-dim:#6E2418;
+    --green:#63C97A;
+    --f-disp:'Archivo Black',sans-serif;
+    --f-lbl:'Barlow Condensed',sans-serif;
+    --f-num:'OCR-B','Space Mono',monospace;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
-  html,body{margin:0;height:100%;background:var(--asphalt);color:var(--chalk);font-family:'Inter',sans-serif;overscroll-behavior:none;}
-  #app{max-width:520px;margin:0 auto;min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;position:relative;}
-
-  .tread{
-    height:6px;width:100%;flex-shrink:0;
-    background:repeating-linear-gradient(115deg,var(--flag) 0 8px,transparent 8px 16px);
-    opacity:.85;
+  html,body{
+    margin:0;height:100%;background:var(--blk);color:var(--off);
+    font-family:var(--f-lbl);overscroll-behavior:none;
+  }
+  #app{
+    max-width:480px;margin:0 auto;min-height:100vh;min-height:100dvh;
+    display:flex;flex-direction:column;position:relative;background:var(--blk);
   }
 
-  header{
-    padding:18px 18px 14px;display:flex;align-items:center;gap:12px;
-    border-bottom:1px solid var(--line);background:var(--asphalt);
-    position:sticky;top:0;z-index:5;
-  }
-  header .back{
-    width:34px;height:34px;border-radius:8px;border:1px solid var(--line);
-    background:var(--asphalt-2);display:flex;align-items:center;justify-content:center;
-    color:var(--chalk);cursor:pointer;flex-shrink:0;
-  }
-  header .header-delete{
-    width:34px;height:34px;border-radius:8px;border:1px solid #4a2420;
-    background:var(--asphalt-2);display:flex;align-items:center;justify-content:center;
-    color:#FF6B5A;cursor:pointer;flex-shrink:0;font-size:16px;
-  }
-  header h1{
-    font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:1.5px;
-    font-size:20px;font-weight:600;margin:0;flex:1;
-  }
-  header .sub{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--chalk-dim);margin-top:2px;}
+  /* Zéro dessiné : le DOM conserve un vrai « 0 » (recherche, copie, export). */
+  .z0{display:inline-block;width:1ch;height:.72em;vertical-align:baseline;position:relative;}
+  .z0 svg{position:absolute;left:50%;transform:translateX(-50%);height:100%;width:auto;}
 
-  main{flex:1;padding:16px;padding-bottom:100px;}
+  .strip{
+    height:7px;flex-shrink:0;
+    background:repeating-linear-gradient(90deg,var(--blk) 0 5px,var(--yel) 5px 8px);
+  }
 
+  /* ---------- En-tête jaune (accueil) ---------- */
+  .masthead{
+    background:var(--yel);color:var(--blk);padding:13px 16px 11px;
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+  }
+  .masthead h1{
+    font-family:var(--f-disp);font-size:19px;line-height:.92;letter-spacing:-.5px;
+    margin:0;text-transform:uppercase;
+  }
+  .masthead .meta{
+    font-family:'Space Mono',monospace;font-size:9px;text-align:right;line-height:1.55;
+    text-transform:uppercase;
+  }
+
+  /* ---------- Barre de navigation (fiche, formulaire) ---------- */
+  .navbar{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:12px 14px;border-bottom:1px solid var(--line);background:var(--blk);
+  }
+  .navbar .back{
+    font-family:var(--f-lbl);font-weight:600;font-size:14px;letter-spacing:1.3px;
+    text-transform:uppercase;color:var(--grey);background:none;border:none;cursor:pointer;
+    padding:6px 0;flex-shrink:0;
+  }
+  .navbar .title{
+    font-family:var(--f-lbl);font-weight:700;font-size:14px;letter-spacing:1.6px;
+    text-transform:uppercase;color:var(--off);text-align:center;flex:1;min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .navbar .navright{flex-shrink:0;min-width:58px;text-align:right;}
+  .icon-btn{
+    background:none;border:none;color:var(--grey);cursor:pointer;font-size:16px;padding:6px;
+  }
+  .icon-btn.danger{color:var(--red);}
+
+  main{flex:1;padding:15px 15px 0;padding-bottom:104px;}
+
+  /* ---------- Boutons ---------- */
   .btn{
-    display:flex;align-items:center;justify-content:center;gap:8px;
-    font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:.5px;
-    font-weight:600;font-size:15px;border:none;border-radius:10px;padding:14px 18px;
-    cursor:pointer;width:100%;
+    display:flex;align-items:center;justify-content:center;gap:7px;
+    font-family:var(--f-disp);font-size:13.5px;letter-spacing:.4px;text-transform:uppercase;
+    border:none;padding:14px 12px;cursor:pointer;width:100%;
   }
-  .btn-primary{background:var(--flag);color:#161616;}
-  .btn-primary:active{background:#e04f19;}
-  .btn-ghost{background:transparent;color:var(--chalk);border:1px solid var(--line);}
-  .btn-ghost:active{background:var(--asphalt-2);}
-  .btn-sm{padding:9px 14px;font-size:12px;width:auto;}
-
+  .btn-primary{background:var(--yel);color:var(--blk);}
+  .btn-primary:active{background:#D8AD00;}
+  .btn-ghost{background:transparent;color:var(--off);border:1px solid var(--line);}
+  .btn-ghost:active{background:var(--card);}
+  .btn-danger{background:transparent;color:var(--red);border:1px solid var(--red-dim);}
+  .btn-sm{padding:9px 13px;font-size:11.5px;width:auto;}
   .fab{
-    position:fixed;bottom:calc(22px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);
-    max-width:488px;width:calc(100% - 32px);z-index:6;
-    box-shadow:0 8px 24px rgba(255,90,31,.35);
+    position:fixed;bottom:calc(20px + env(safe-area-inset-bottom,0px));
+    left:50%;transform:translateX(-50%);max-width:450px;width:calc(100% - 30px);z-index:6;
+    box-shadow:0 10px 28px rgba(0,0,0,.65);
   }
 
-  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;}
-  .chip{
-    font-family:'IBM Plex Mono',monospace;font-size:12px;padding:7px 12px;border-radius:20px;
-    border:1px solid var(--line);color:var(--chalk-dim);cursor:pointer;background:var(--asphalt-2);
-  }
-  .chip.active{background:var(--flag);border-color:var(--flag);color:#161616;font-weight:600;}
-
-  .empty{
-    text-align:center;padding:60px 20px;color:var(--chalk-dim);
-  }
-  .empty svg{opacity:.5;margin-bottom:14px;}
-  .empty p{font-size:14px;line-height:1.5;max-width:260px;margin:0 auto;}
-
-  .card{
-    background:var(--asphalt-2);border:1px solid var(--line);border-radius:12px;
-    padding:14px 16px;margin-bottom:10px;cursor:pointer;position:relative;overflow:hidden;
-  }
-  .card::before{
-    content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--pos-color,var(--flag));
-  }
-  .card-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;}
-  .card-id{font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;letter-spacing:.5px;}
-  .pos-badge{
-    font-family:'Oswald',sans-serif;font-size:11px;font-weight:600;letter-spacing:1px;
-    padding:3px 8px;border-radius:5px;background:var(--asphalt-3);color:var(--pos-color,var(--flag));
-  }
-  .card-meta{display:flex;gap:14px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--chalk-dim);}
-  .card-meta b{color:var(--chalk);font-weight:500;}
-  .card.card-hs{opacity:.55;}
-  .hs-pill{
-    font-family:'Oswald',sans-serif;font-size:10px;font-weight:700;letter-spacing:1px;
-    padding:2px 7px;border-radius:5px;background:#4a1414;color:#ff6b6b;margin-left:6px;
-  }
-  .hs-toggle{
-    display:block;width:100%;text-align:left;background:none;border:none;color:var(--chalk-dim);
-    font-family:'IBM Plex Mono',monospace;font-size:12px;padding:10px 2px;cursor:pointer;
-  }
-
-  /* Home tabs */
-  .hometabs{display:flex;gap:8px;margin-bottom:18px;}
+  /* ---------- Onglets d'accueil ---------- */
+  .hometabs{display:flex;gap:6px;margin-bottom:14px;}
   .hometab{
-    flex:1;font-family:'Oswald',sans-serif;font-size:13px;font-weight:600;letter-spacing:.5px;
-    padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--asphalt-2);
-    color:var(--chalk-dim);cursor:pointer;
+    flex:1;font-family:var(--f-lbl);font-weight:600;font-size:14px;letter-spacing:1.4px;
+    text-transform:uppercase;padding:8px;cursor:pointer;
+    background:transparent;color:var(--grey);border:1px solid var(--line);
   }
-  .hometab.active{background:var(--flag);border-color:var(--flag);color:#161616;}
+  .hometab.active{background:var(--off);color:var(--blk);border-color:var(--off);}
+  .hometab.tab-icon{flex:0 0 46px;font-size:15px;letter-spacing:0;}
 
-  /* Train view */
-  .train-list{display:flex;flex-direction:column;gap:8px;margin-bottom:20px;max-height:180px;overflow-y:auto;}
+  /* ---------- Filtres de position ---------- */
+  .chips{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:14px;}
+  .chip{
+    font-family:var(--f-lbl);font-weight:600;font-size:13.5px;letter-spacing:1.1px;
+    text-transform:uppercase;padding:7px 12px;cursor:pointer;
+    background:var(--card);color:var(--grey);border:1px solid var(--line);
+  }
+  .chip.active{background:var(--yel);color:var(--blk);border-color:var(--yel);}
+
+  /* ---------- Carte pneu (vignette) ---------- */
+  .card{
+    display:flex;align-items:stretch;gap:11px;background:var(--card);
+    border:1px solid var(--line);margin-bottom:8px;padding:9px;cursor:pointer;
+  }
+  .card .vig{
+    width:56px;flex-shrink:0;background:var(--yel);color:var(--blk);
+    display:flex;align-items:center;justify-content:center;padding:6px 3px;
+  }
+  .card .vig span{
+    font-family:var(--f-disp);font-size:16px;letter-spacing:-.4px;line-height:1;
+  }
+  .card.card-hs .vig{background:var(--red);color:#fff;}
+  .card.card-hs{opacity:.6;}
+  .card .info{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;}
+  .card .code{
+    font-family:var(--f-num);font-size:19px;letter-spacing:.4px;line-height:1;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .card .sub{
+    font-family:var(--f-num);font-size:10.5px;text-transform:uppercase;
+    color:var(--grey);margin-top:5px;
+  }
+  .card .sub b{color:var(--off);font-weight:400;}
+  .hs-toggle{
+    display:block;width:100%;text-align:left;background:none;border:none;color:var(--grey);
+    font-family:var(--f-lbl);font-weight:600;font-size:13.5px;letter-spacing:1.2px;
+    text-transform:uppercase;padding:12px 2px;cursor:pointer;
+  }
+
+  /* ---------- Vue Train ---------- */
+  .train-list{display:flex;gap:6px;overflow-x:auto;margin-bottom:15px;padding-bottom:3px;}
   .train-item{
-    display:flex;justify-content:space-between;align-items:center;text-align:left;
-    background:var(--asphalt-2);border:1px solid var(--line);border-radius:10px;
-    padding:10px 14px;cursor:pointer;color:var(--chalk);
+    flex-shrink:0;font-family:var(--f-lbl);font-weight:600;font-size:13px;letter-spacing:.9px;
+    text-transform:uppercase;padding:6px 11px;cursor:pointer;white-space:nowrap;
+    background:var(--card);color:var(--grey);border:1px solid var(--line);
   }
-  .train-item.active{border-color:var(--flag);background:var(--asphalt-3);}
-  .train-item-title{font-family:'Oswald',sans-serif;font-size:14px;font-weight:600;}
-  .train-item-date{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--chalk-dim);}
-
-  .car-view{
-    position:relative;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;
-    gap:16px;padding:10px;min-height:300px;align-items:stretch;
-  }
-  .car-body-svg{
-    position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:0;opacity:.3;pointer-events:none;
+  .train-item.active{background:var(--yel);color:var(--blk);border-color:var(--yel);}
+  .car-view{display:grid;grid-template-columns:1fr 1fr;gap:9px;position:relative;}
+  .car-view::before{
+    content:'';position:absolute;left:50%;top:6%;bottom:6%;width:1px;
+    background:repeating-linear-gradient(180deg,var(--line) 0 6px,transparent 6px 12px);
   }
   .car-slot{
-    position:relative;z-index:1;background:rgba(26,26,26,.9);border:1px solid var(--line);border-radius:14px;
-    padding:14px 10px;display:flex;flex-direction:column;justify-content:center;align-items:center;
-    text-align:center;border-top:4px solid var(--pos-color,var(--line));gap:4px;cursor:default;
+    background:var(--card);border:1px solid var(--line);padding:10px;text-align:left;
+    color:var(--off);cursor:default;
   }
   .car-slot[data-tirekey]{cursor:pointer;}
-  .car-slot .slot-label{font-family:'Oswald',sans-serif;font-size:11px;font-weight:600;letter-spacing:1px;color:var(--pos-color,var(--chalk-dim));}
-  .car-slot .slot-tireid{font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;}
-  .car-slot .slot-empty{font-family:'IBM Plex Mono',monospace;font-size:15px;color:var(--chalk-dim);}
-  .car-slot .slot-sub{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--chalk-dim);}
+  .car-slot .slot-label{
+    display:inline-block;background:var(--yel);color:var(--blk);
+    font-family:var(--f-disp);font-size:10px;padding:2px 6px;letter-spacing:-.2px;
+  }
+  .car-slot .slot-tireid{
+    font-family:var(--f-num);font-size:15px;margin:7px 0 2px;display:block;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .car-slot .slot-empty{font-family:var(--f-num);font-size:15px;color:#4A4740;margin:7px 0 2px;display:block;}
+  .car-slot .slot-sub{font-family:var(--f-num);font-size:10.5px;color:var(--grey);}
   .car-slot.is-hs{opacity:.55;}
+  .car-slot.is-hs .slot-label{background:var(--red);color:#fff;}
+  .legend{
+    font-family:var(--f-num);font-size:10px;color:var(--grey);
+    margin-top:13px;line-height:1.6;border-top:1px solid var(--line);padding-top:10px;
+  }
 
-  /* Scanner */
+  /* ---------- Fiche pneu ---------- */
+  .hero{background:var(--yel);color:var(--blk);padding:14px 16px 12px;position:relative;}
+  .hero .hcode{
+    font-family:var(--f-num);font-size:31px;letter-spacing:1.5px;line-height:1;
+    padding-right:66px;word-break:break-all;
+  }
+  .hero .hbar{display:block;margin-bottom:6px;}
+  .hero .hpos{
+    position:absolute;right:16px;top:50%;transform:translateY(-50%);
+    background:var(--blk);color:var(--yel);font-family:var(--f-disp);
+    font-size:17px;padding:9px 11px;letter-spacing:-.4px;
+  }
+  .hero.is-hs{background:#B9A44A;}
+  .hero.is-hs .hpos{background:var(--red);color:#fff;}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--line);}
+  .stats > div{padding:12px 8px;border-right:1px solid var(--line);text-align:center;}
+  .stats > div:last-child{border-right:none;}
+  .stats .sv{font-family:var(--f-num);font-size:19px;color:var(--yel);line-height:1.1;}
+  .stats .sk{
+    font-family:var(--f-lbl);font-weight:600;font-size:10px;letter-spacing:1.4px;
+    text-transform:uppercase;color:var(--grey);margin-top:3px;
+  }
+  .actions{display:flex;gap:8px;margin-bottom:12px;}
+  .sect{
+    font-family:var(--f-lbl);font-weight:700;font-size:12px;letter-spacing:1.8px;
+    text-transform:uppercase;color:var(--grey);margin:20px 0 9px;
+    display:flex;justify-content:space-between;align-items:baseline;
+  }
+
+  /* ---------- Roulage (accordéon) ---------- */
+  .session{border:1px solid var(--line);background:var(--card);margin-bottom:8px;}
+  .run-head{display:flex;align-items:stretch;gap:11px;padding:9px;cursor:pointer;}
+  .run-num{
+    width:38px;flex-shrink:0;background:var(--yel);color:var(--blk);
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--f-num);font-size:15px;
+  }
+  .run-main{flex:1;min-width:0;}
+  .run-t{
+    font-family:var(--f-lbl);font-weight:600;font-size:15px;letter-spacing:.8px;
+    text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .run-s{font-family:var(--f-num);font-size:10.5px;color:var(--grey);margin-top:3px;}
+  .run-chev{color:var(--grey);align-self:center;font-size:12px;}
+  .session.open .run-chev{color:var(--yel);transform:rotate(180deg);}
+  .run-body{border-top:1px solid var(--line);padding:11px;display:none;}
+  .session.open .run-body{display:block;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);margin-bottom:11px;}
+  .grid2 > div{background:var(--card2);padding:8px 10px;}
+  .grid2 .gk{
+    font-family:var(--f-lbl);font-weight:600;font-size:9.5px;letter-spacing:1.3px;
+    text-transform:uppercase;color:var(--grey);
+  }
+  .grid2 .gv{font-family:var(--f-num);font-size:15px;margin-top:2px;}
+  .grid2 .gv em{font-style:normal;font-size:10px;color:var(--grey);}
+  .note{
+    background:var(--card2);padding:9px 10px;margin-bottom:11px;
+    font-family:var(--f-lbl);font-weight:500;font-size:14px;letter-spacing:.4px;
+    color:#D8D3C4;line-height:1.4;
+  }
+  .note b{
+    display:block;font-weight:700;font-size:9.5px;letter-spacing:1.3px;text-transform:uppercase;
+    color:var(--grey);margin-bottom:3px;
+  }
+  .rowbtns{display:flex;gap:7px;}
+  .rowbtns button{
+    flex:1;font-family:var(--f-lbl);font-weight:600;font-size:12.5px;letter-spacing:1.2px;
+    text-transform:uppercase;padding:9px 4px;cursor:pointer;
+    background:transparent;border:1px solid var(--line);color:var(--grey);
+  }
+  .rowbtns button.del{color:var(--red);border-color:var(--red-dim);}
+
+  /* ---------- Formulaire ---------- */
+  .tagline{
+    background:var(--yel);color:var(--blk);padding:8px 14px;
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+  }
+  .tagline .tcode{
+    font-family:var(--f-num);font-size:17px;letter-spacing:1.2px;min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .tagline .tpos{
+    background:var(--blk);color:var(--yel);font-family:var(--f-disp);
+    font-size:11px;padding:3px 8px;flex-shrink:0;
+  }
+  label{
+    display:block;font-family:var(--f-lbl);font-weight:700;font-size:10.5px;
+    letter-spacing:1.6px;text-transform:uppercase;color:var(--grey);margin:16px 0 5px;
+  }
+  main > label:first-child{margin-top:0;}
+  input[type=text],input[type=date],input[type=number],textarea,select{
+    width:100%;background:var(--card);border:1px solid var(--line);border-radius:0;
+    padding:11px 12px;color:var(--off);font-size:15px;font-family:var(--f-num);
+    -webkit-appearance:none;appearance:none;
+  }
+  input:focus,textarea:focus,select:focus{outline:none;border-color:var(--yel);}
+  input::placeholder,textarea::placeholder{color:#4E4B44;}
+  textarea{
+    min-height:62px;resize:vertical;
+    font-family:var(--f-lbl);font-weight:500;font-size:15px;letter-spacing:.3px;
+  }
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .unit{position:relative;}
+  .unit > span{
+    position:absolute;right:11px;top:50%;transform:translateY(-50%);
+    font-family:var(--f-lbl);font-weight:600;font-size:12px;letter-spacing:1.2px;
+    color:var(--grey);text-transform:uppercase;pointer-events:none;
+  }
+  .poscar{
+    display:grid;grid-template-columns:1fr 1fr;gap:8px;position:relative;
+    border:1px solid var(--line);padding:14px;background:var(--card);
+  }
+  .poscar::before{
+    content:'';position:absolute;left:50%;top:14px;bottom:14px;width:1px;
+    background:repeating-linear-gradient(180deg,var(--line) 0 5px,transparent 5px 10px);
+  }
+  .poscar button{
+    font-family:var(--f-disp);font-size:14px;padding:14px 6px;cursor:pointer;
+    background:var(--card2);color:var(--grey);border:1px solid var(--line);letter-spacing:-.3px;
+  }
+  .poscar button.active{background:var(--yel);color:var(--blk);border-color:var(--yel);}
+  .poscar .poscar-clear{
+    grid-column:1/-1;font-family:var(--f-lbl);font-weight:600;font-size:12px;
+    letter-spacing:1.2px;text-transform:uppercase;padding:8px;background:transparent;
+  }
+  .form-actions{display:flex;gap:9px;margin-top:22px;}
+
+  /* ---------- Scanner ---------- */
   .scan-wrap{position:fixed;inset:0;background:#000;z-index:20;display:flex;flex-direction:column;}
   .scan-header{
-    position:absolute;top:0;left:0;right:0;z-index:2;
-    display:flex;align-items:center;gap:12px;padding:16px;
-    background:linear-gradient(180deg,rgba(0,0,0,.7),transparent);
+    position:absolute;top:0;left:0;right:0;z-index:4;
+    display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px;
+  }
+  .scan-header button{
+    font-family:var(--f-lbl);font-weight:600;font-size:14px;letter-spacing:1.3px;
+    text-transform:uppercase;background:rgba(12,12,10,.72);color:var(--off);
+    border:1px solid rgba(240,192,0,.35);padding:7px 12px;cursor:pointer;
   }
   #scanner-container{position:absolute;inset:0;overflow:hidden;background:#000;}
-  #scanner-container video, #scanner-container canvas{
+  #scanner-container video{
     position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
     min-width:100%;min-height:100%;width:auto;height:auto;
   }
-  #scanner-container canvas.drawingBuffer{display:none;}
   .viewfinder{
-    position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-    width:78%;max-width:340px;height:150px;pointer-events:none;
+    position:absolute;left:7%;right:7%;top:44%;transform:translateY(-50%);
+    height:185px;pointer-events:none;box-shadow:0 0 0 2000px rgba(8,8,6,.6);
   }
-  .vf-corner{position:absolute;width:26px;height:26px;border:3px solid var(--flag);}
-  .vf-corner.tl{top:0;left:0;border-right:none;border-bottom:none;border-radius:4px 0 0 0;}
-  .vf-corner.tr{top:0;right:0;border-left:none;border-bottom:none;border-radius:0 4px 0 0;}
-  .vf-corner.bl{bottom:0;left:0;border-right:none;border-top:none;border-radius:0 0 0 4px;}
-  .vf-corner.br{bottom:0;right:0;border-left:none;border-top:none;border-radius:0 0 4px 0;}
+  .vf-corner{position:absolute;width:30px;height:30px;border:3px solid var(--yel);}
+  .vf-corner.tl{top:-2px;left:-2px;border-right:none;border-bottom:none;}
+  .vf-corner.tr{top:-2px;right:-2px;border-left:none;border-bottom:none;}
+  .vf-corner.bl{bottom:-2px;left:-2px;border-right:none;border-top:none;}
+  .vf-corner.br{bottom:-2px;right:-2px;border-left:none;border-top:none;}
+  .laser{
+    position:absolute;left:6px;right:6px;height:2px;background:var(--yel);
+    box-shadow:0 0 12px 2px rgba(240,192,0,.7);animation:sweep 2.4s ease-in-out infinite;
+  }
+  @keyframes sweep{0%,100%{top:8px}50%{top:173px}}
   .scan-hint{
-    position:absolute;bottom:0;left:0;right:0;padding:24px 20px 34px;
-    background:linear-gradient(0deg,rgba(0,0,0,.85),transparent);
-    text-align:center;z-index:2;
+    position:absolute;bottom:0;left:0;right:0;padding:20px 16px calc(26px + env(safe-area-inset-bottom,0px));
+    background:linear-gradient(0deg,rgba(0,0,0,.9),transparent);text-align:center;z-index:3;
   }
-  .scan-hint p{color:var(--chalk);font-size:13px;margin:0 0 14px;font-family:'IBM Plex Mono',monospace;}
-  .manual-toggle{color:var(--flag);font-size:13px;text-decoration:underline;background:none;border:none;cursor:pointer;font-family:'Inter',sans-serif;}
+  .scan-hint p{
+    font-family:var(--f-lbl);font-weight:600;font-size:14px;letter-spacing:1.6px;
+    text-transform:uppercase;color:var(--off);margin:0 0 12px;
+  }
+  .manual-toggle{
+    font-family:var(--f-lbl);font-weight:600;font-size:13px;letter-spacing:1.2px;
+    text-transform:uppercase;color:var(--yel);background:none;border:none;cursor:pointer;
+    text-decoration:underline;padding:8px;
+  }
 
+  /* ---------- Feuilles coulissantes ---------- */
   .manual-sheet{
-    position:absolute;bottom:0;left:0;right:0;background:var(--asphalt-2);
-    border-radius:16px 16px 0 0;padding:20px;z-index:3;border-top:1px solid var(--line);
+    position:absolute;bottom:0;left:0;right:0;background:var(--card);z-index:5;
+    border-top:2px solid var(--yel);padding:18px 16px calc(20px + env(safe-area-inset-bottom,0px));
+    max-height:88%;overflow-y:auto;
   }
-
-  /* Form */
-  label{display:block;font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:.8px;
-    text-transform:uppercase;color:var(--chalk-dim);margin:16px 0 6px;}
-  label:first-child{margin-top:0;}
-  input[type=text],input[type=date],input[type=number],textarea,select{
-    width:100%;background:var(--asphalt-2);border:1px solid var(--line);border-radius:9px;
-    padding:12px 13px;color:var(--chalk);font-size:15px;font-family:'Inter',sans-serif;
-  }
-  input[type=number]{font-family:'IBM Plex Mono',monospace;}
-  textarea{min-height:64px;resize:vertical;font-family:'Inter',sans-serif;}
-  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
-  .form-sheet{padding-bottom:20px;}
-  .form-actions{display:flex;gap:10px;margin-top:22px;}
-
-  /* Tire detail */
-  .stat-row{display:flex;gap:10px;margin-bottom:18px;}
-  .stat{flex:1;background:var(--asphalt-2);border:1px solid var(--line);border-radius:10px;padding:12px;text-align:center;}
-  .stat b{display:block;font-family:'IBM Plex Mono',monospace;font-size:20px;color:var(--flag);}
-  .stat span{font-size:10px;color:var(--chalk-dim);text-transform:uppercase;letter-spacing:.6px;}
-
-  .session{border-left:2px solid var(--line);padding:2px 0 14px 16px;position:relative;cursor:pointer;}
-  .session::before{content:'';position:absolute;left:-5px;top:4px;width:9px;height:9px;border-radius:50%;background:var(--flag);}
-  .session .s-num{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--chalk-dim);display:flex;justify-content:space-between;align-items:center;}
-  .session .s-num-right{display:flex;align-items:center;gap:8px;}
-  .session .s-chevron{transition:transform .2s;font-size:13px;}
-  .session.open .s-chevron{transform:rotate(180deg);}
-  .session .s-title{font-family:'Oswald',sans-serif;font-weight:600;font-size:15px;margin:2px 0 0;}
-  .session .s-detail{display:none;margin-top:8px;}
-  .session.open .s-detail{display:block;}
-  .session .s-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;font-size:13px;color:var(--chalk-dim);margin-bottom:6px;}
-  .session .s-grid b{color:var(--chalk);font-weight:500;}
-  .session .s-note{font-size:13px;color:var(--chalk-dim);line-height:1.4;}
-  .session .s-note b{color:var(--chalk);font-weight:500;}
-  .s-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px;}
-  .s-action-btn{
-    font-family:'Oswald',sans-serif;font-size:11px;letter-spacing:.5px;text-transform:uppercase;
-    font-weight:600;background:var(--asphalt-3);border:1px solid var(--line);color:var(--chalk-dim);
-    padding:7px 12px;border-radius:7px;cursor:pointer;
-  }
-  .s-action-delete{color:#FF6B5A;border-color:#4a2420;}
-
-  /* Data sheet (export / import) */
-  .sheet-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:15;}
+  .sheet-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:15;}
   .home-sheet{
     position:fixed;bottom:0;left:50%;transform:translateX(-50%);
-    max-width:520px;width:100%;background:var(--asphalt-2);
-    border-radius:16px 16px 0 0;border-top:1px solid var(--line);
-    padding:20px 20px calc(22px + env(safe-area-inset-bottom,0px));z-index:16;
+    max-width:480px;width:100%;background:var(--card);border-top:2px solid var(--yel);
+    padding:18px 16px calc(20px + env(safe-area-inset-bottom,0px));z-index:16;
   }
   .home-sheet h2{
-    font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:1px;
-    font-size:15px;font-weight:600;margin:0 0 14px;
+    font-family:var(--f-disp);text-transform:uppercase;font-size:15px;margin:0 0 12px;
   }
-  .home-sheet .btn{margin-bottom:10px;}
-  .home-sheet .hint{font-size:12px;color:var(--chalk-dim);line-height:1.45;margin:4px 0 14px;}
+  .home-sheet .btn{margin-bottom:9px;}
+  .home-sheet .hint{
+    font-family:var(--f-lbl);font-weight:500;font-size:14px;letter-spacing:.3px;
+    color:var(--grey);line-height:1.45;margin:0 0 14px;
+  }
+
+  /* ---------- États ---------- */
+  .empty{text-align:center;padding:52px 20px;color:var(--grey);}
+  .empty p{
+    font-family:var(--f-lbl);font-weight:500;font-size:15px;letter-spacing:.3px;
+    line-height:1.5;max-width:270px;margin:0 auto;
+  }
+  .empty svg{opacity:.4;margin-bottom:14px;}
+  .loading{font-family:var(--f-num);font-size:12px;color:var(--grey);}
 
   .update-banner{
     position:fixed;left:50%;transform:translateX(-50%);
     bottom:calc(84px + env(safe-area-inset-bottom,0px));
     display:flex;align-items:center;gap:12px;z-index:31;
-    background:var(--asphalt-3);border:1px solid var(--flag);border-radius:12px;
-    padding:10px 12px 10px 16px;font-size:13px;max-width:calc(100% - 32px);
+    background:var(--card2);border:1px solid var(--yel);
+    padding:9px 10px 9px 14px;max-width:calc(100% - 30px);
+    font-family:var(--f-lbl);font-weight:600;font-size:14px;letter-spacing:.8px;
+    text-transform:uppercase;
   }
   .update-banner button{
-    font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:.5px;font-weight:600;
-    font-size:12px;background:var(--flag);color:#161616;border:none;border-radius:8px;
-    padding:8px 12px;cursor:pointer;
+    font-family:var(--f-disp);font-size:11.5px;background:var(--yel);color:var(--blk);
+    border:none;padding:8px 11px;cursor:pointer;text-transform:uppercase;
   }
   .offline-badge{
-    display:none;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;
-    font-size:10px;letter-spacing:.5px;color:var(--amber);
-    border:1px solid #5a4415;background:#2a2110;border-radius:20px;padding:3px 9px;
+    display:none;align-items:center;gap:5px;font-family:'Space Mono',monospace;
+    font-size:9px;letter-spacing:.5px;color:var(--blk);
+    border:1px solid rgba(0,0,0,.45);padding:1px 6px;margin-top:2px;
   }
   .offline-badge.show{display:inline-flex;}
   .toast{
     position:fixed;bottom:100px;left:50%;transform:translateX(-50%);
-    background:var(--asphalt-3);border:1px solid var(--line);padding:10px 18px;border-radius:20px;
-    font-size:13px;z-index:30;opacity:0;transition:opacity .25s;pointer-events:none;
+    background:var(--card2);border:1px solid var(--yel);padding:11px 18px;
+    font-family:var(--f-lbl);font-weight:600;font-size:14px;letter-spacing:.7px;
+    text-transform:uppercase;z-index:30;opacity:0;transition:opacity .25s;
+    pointer-events:none;max-width:calc(100% - 30px);text-align:center;
   }
   .toast.show{opacity:1;}
 </style>
 </head>
 <body>
 <div id="app">
-  <div class="tread"></div>
   <div id="view"></div>
 </div>
 <div class="toast" id="toast"></div>
@@ -286,7 +441,7 @@ const POSITIONS = [
   {id:'ARG', label:'AR. GAUCHE', color:'#4C9AFF'},
 ];
 const SESSION_TYPES = ['EL1','EL2','Q','C1','C2','C3','C4'];
-const APP_VERSION = 'v12';
+const APP_VERSION = 'v13';
 
 let state = { view: 'home', tireKey: null, filterPos: null, homeTab: 'pneus', showHS: false, trainKey: null };
 
@@ -518,9 +673,12 @@ function importJSON(){
             merged += news.length;
           }
           if(!existing.position && imp.position) existing.position = imp.position;
+          // un pneu déclaré HS d'un côté ou de l'autre le reste après fusion
+          if(imp.hs) existing.hs = true;
           await saveTire(key, existing);
         } else {
           await saveTire(key, { id: imp.id, key, position: imp.position||null,
+            hs: !!imp.hs,
             createdAt: imp.createdAt||Date.now(), sessions: imp.sessions||[] });
           const idx = await getIndex();
           if(!idx.includes(key)){ idx.push(key); await saveIndex(idx); }
@@ -608,42 +766,84 @@ function go(view, opts={}){
   return render();
 }
 
+// ---------- Helpers de rendu (étiquette FIA) ----------
+// Le zéro d'OCR-B porte une pastille centrale absente des vraies étiquettes.
+// On le remplace par un ovale vectoriel : le texte du DOM reste un vrai « 0 »,
+// donc recherche, copier-coller et exports ne sont pas affectés.
+const ZERO_SVG = '<span class="z0"><svg viewBox="0 0 72 100">'
+  + '<rect x="7" y="7" width="58" height="86" rx="29" ry="29" fill="none" '
+  + 'stroke="currentColor" stroke-width="12"/></svg></span>';
+function z(text){ return String(text ?? '').replace(/0/g, ZERO_SVG); }
+
+// Code-barres Interleaved 2 of 5 — même symbologie que les étiquettes FIA.
+const ITF_ENC = {'0':'NNWWN','1':'WNNNW','2':'NWNNW','3':'WWNNN','4':'NNWNW',
+                 '5':'WNWNN','6':'NWWNN','7':'NNNWW','8':'WNNWN','9':'NWNWN'};
+function barcodeFor(id, w, h, color, opacity){
+  const code = String(id||'');
+  // ITF n'encode que des chiffres, par paires : sinon pas de code-barres décoratif
+  if(!/^\d+$/.test(code) || code.length % 2 !== 0) return '';
+  const bars = [];
+  const push = (dark, wide) => bars.push({d:dark, w:wide?3:1});
+  for(let i=0;i<4;i++) push(i%2===0, false);
+  for(let i=0;i+1<code.length;i+=2){
+    const b = ITF_ENC[code[i]], s = ITF_ENC[code[i+1]];
+    if(!b || !s) return '';
+    for(let j=0;j<5;j++){ push(true, b[j]==='W'); push(false, s[j]==='W'); }
+  }
+  push(true,true); push(false,false); push(true,false);
+  const units = bars.reduce((a,b)=>a+b.w,0), u = w/units;
+  let x = 0, rects = '';
+  bars.forEach(b=>{
+    if(b.d) rects += `<rect x="${(x*u).toFixed(2)}" y="0" width="${(b.w*u).toFixed(2)}" height="${h}"/>`;
+    x += b.w;
+  });
+  return `<svg class="hbar" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" `
+       + `style="display:block;opacity:${opacity}" fill="${color}">${rects}</svg>`;
+}
+
+// Date compacte pour les listes : 19.07.26
+function fmtDateShort(d){
+  if(!d) return '—';
+  const [y,m,day] = String(d).split('-');
+  return day ? `${day}.${m}.${String(y).slice(-2)}` : String(d);
+}
+function nf(n){ return String(n).replace('.', ','); }
+
 // ---------- Home ----------
 function tireCardHtml(t){
-  const info = posInfo(getEffectivePosition(t));
+  const pos = getEffectivePosition(t);
   const last = getLatestSession(t);
+  const n = t.sessions.length;
+  const km = Math.round(t.sessions.reduce((s,x)=>s+(Number(x.km)||0),0) * 10) / 10;
+  const bits = [`<b>${z(n)}</b> roulage${n>1?'s':''}`];
+  if(km) bits.push(`<b>${z(nf(km))}</b> km`);
+  if(last && last.date) bits.push(z(fmtDateShort(last.date)));
   return `
-    <div class="card ${t.hs?'card-hs':''}" style="--pos-color:${info.color}" data-key="${t.key}">
-      <div class="card-top">
-        <span class="card-id">${escapeHtml(t.id)}</span>
-        <span>
-          <span class="pos-badge" style="--pos-color:${info.color}">${info.label}</span>
-          ${t.hs?'<span class="hs-pill">HS</span>':''}
-        </span>
-      </div>
-      <div class="card-meta">
-        <span><b>${t.sessions.length}</b> roulage${t.sessions.length>1?'s':''}</span>
-        ${last? `<span>dernier : <b>${fmtDate(last.date)}</b></span>` : ''}
+    <div class="card ${t.hs?'card-hs':''}" data-key="${t.key}">
+      <div class="vig"><span>${t.hs ? 'HS' : (pos || '—')}</span></div>
+      <div class="info">
+        <div class="code">${z(escapeHtml(t.id))}</div>
+        ${barcodeFor(t.id, 132, 12, '#F0C000', .55)}
+        <div class="sub">${bits.join(' · ')}</div>
       </div>
     </div>`;
 }
 
 async function renderHome(v){
   v.innerHTML = `
-    <header>
-      <div style="flex:1;">
-        <h1>Suivi des Pneus</h1>
-        <div class="sub">${APP_VERSION} · scanner FIA
-          <span class="offline-badge" id="offline-badge">● HORS LIGNE</span>
-        </div>
+    <div class="masthead">
+      <h1>Suivi<br>des pneus</h1>
+      <div class="meta" id="mast-meta">
+        Escot Compétition<br>${APP_VERSION} · scanner FIA<br>
+        <span id="mast-count">—</span>
+        <span class="offline-badge" id="offline-badge">● HORS LIGNE</span>
       </div>
-      <button class="back" id="data-btn" title="Sauvegarde / export">⇅</button>
-    </header>
-    <main id="home-main"><p style="color:var(--chalk-dim);font-family:'IBM Plex Mono',monospace;font-size:13px;">Chargement…</p></main>
-    <button class="btn btn-primary fab" id="scan-fab" style="${state.homeTab==='train'?'display:none;':''}">＋ &nbsp;Scanner un pneu</button>
+    </div>
+    <div class="strip"></div>
+    <main id="home-main"><p class="loading">Chargement…</p></main>
+    <button class="btn btn-primary fab" id="scan-fab" style="${state.homeTab==='train'?'display:none;':''}">Scanner un pneu</button>
   `;
   document.getElementById('scan-fab').onclick = () => go('scan');
-  document.getElementById('data-btn').onclick = showDataSheet;
   updateOnlineBadge();
 
   const idx = await getIndex();
@@ -654,20 +854,27 @@ async function renderHome(v){
     return lb.localeCompare(la);
   });
 
-  const main = document.getElementById('home-main');
+  const totalRuns = tires.reduce((s,t)=>s+(t.sessions?t.sessions.length:0), 0);
+  const count = document.getElementById('mast-count');
+  if(count){
+    count.innerHTML = z(String(tires.length).padStart(2,'0')) + ' pneus · '
+                    + z(String(totalRuns).padStart(2,'0')) + ' roulages';
+  }
 
+  const main = document.getElementById('home-main');
   const tabsHtml = `
     <div class="hometabs">
       <button class="hometab ${state.homeTab!=='train'?'active':''}" id="tab-pneus">Pneus</button>
       <button class="hometab ${state.homeTab==='train'?'active':''}" id="tab-train">Train</button>
+      <button class="hometab tab-icon" id="data-btn" title="Sauvegarde / export">⇅</button>
     </div>`;
 
   if(tires.length===0){
     main.innerHTML = `
       ${tabsHtml}
       <div class="empty">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M21 12h-3M6 12H3"/></svg>
-        <p>Aucun pneu enregistré pour l'instant. Scanne le code-barres d'un pneu pour commencer son historique de roulage.</p>
+        <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M21 12h-3M6 12H3"/></svg>
+        <p>Aucun pneu enregistré. Scanne l'étiquette FIA d'un pneu pour commencer son historique.</p>
       </div>`;
     bindHomeTabs(main);
     return;
@@ -684,8 +891,8 @@ async function renderHome(v){
   const hsTires = tires.filter(t=>t.hs);
   const filtered = state.filterPos ? activeTires.filter(t=>getEffectivePosition(t)===state.filterPos) : activeTires;
 
-  const chips = ['<button class="chip '+(!state.filterPos?'active':'')+'" data-p="">TOUS</button>']
-    .concat(POSITIONS.map(p=>`<button class="chip ${state.filterPos===p.id?'active':''}" data-p="${p.id}" style="${state.filterPos===p.id?`background:${p.color};border-color:${p.color}`:''}">${p.label}</button>`));
+  const chips = ['<button class="chip '+(!state.filterPos?'active':'')+'" data-p="">Tous</button>']
+    .concat(POSITIONS.map(p=>`<button class="chip ${state.filterPos===p.id?'active':''}" data-p="${p.id}">${p.id}</button>`));
 
   main.innerHTML = `
     ${tabsHtml}
@@ -712,9 +919,7 @@ async function renderHome(v){
   }
 
   const hsToggle = document.getElementById('hs-toggle');
-  if(hsToggle){
-    hsToggle.onclick = () => go('home', {showHS: !state.showHS});
-  }
+  if(hsToggle) hsToggle.onclick = () => go('home', {showHS: !state.showHS});
   const hsCards = document.getElementById('hs-cards');
   if(hsCards){
     hsCards.innerHTML = hsTires.map(tireCardHtml).join('');
@@ -726,12 +931,13 @@ async function renderHome(v){
 function bindHomeTabs(main){
   main.querySelector('#tab-pneus').onclick = () => go('home', {homeTab:'pneus'});
   main.querySelector('#tab-train').onclick = () => go('home', {homeTab:'train'});
+  main.querySelector('#data-btn').onclick = showDataSheet;
 }
 
 function renderTrainTab(zone, tires){
   const groups = buildTrainGroups(tires);
   if(groups.length===0){
-    zone.innerHTML = `<div class="empty"><p>Aucun roulage enregistré pour l'instant. Ajoute des roulages avec un lieu renseigné pour voir apparaître le train.</p></div>`;
+    zone.innerHTML = `<div class="empty"><p>Aucun roulage avec un lieu renseigné. Ajoute un roulage pour voir apparaître le train.</p></div>`;
     return;
   }
   if(!state.trainKey || !groups.find(g=>g.key===state.trainKey)){
@@ -739,8 +945,7 @@ function renderTrainTab(zone, tires){
   }
   const list = groups.map(g=>`
     <button class="train-item ${g.key===state.trainKey?'active':''}" data-key="${g.key}">
-      <span class="train-item-title">${escapeHtml(g.location)}${g.sessionType?` · ${escapeHtml(g.sessionType)}`:''}</span>
-      <span class="train-item-date">${g.date?fmtDate(g.date):''}</span>
+      ${escapeHtml(g.location)}${g.sessionType?` · ${escapeHtml(g.sessionType)}`:''}
     </button>`).join('');
 
   const active = groups.find(g=>g.key===state.trainKey);
@@ -748,30 +953,32 @@ function renderTrainTab(zone, tires){
     const info = posInfo(posId);
     const entry = active.slots[posId];
     if(!entry){
-      return `<div class="car-slot" style="--pos-color:${info.color}">
+      return `<div class="car-slot">
         <span class="slot-label">${info.label}</span>
         <span class="slot-empty">—</span>
+        <span class="slot-sub">Non renseigné</span>
       </div>`;
     }
-    return `<div class="car-slot ${entry.hs?'is-hs':''}" style="--pos-color:${info.color}" data-tirekey="${entry.tireKey}">
-      <span class="slot-label">${info.label}</span>
-      <span class="slot-tireid">${escapeHtml(entry.tireId)}${entry.hs?' <span class=\"hs-pill\">HS</span>':''}</span>
-      <span class="slot-sub">${entry.km?`${entry.km} km`:''}${entry.km && entry.laps?' · ':''}${entry.laps?`${entry.laps} tr`:''}</span>
+    const sub = [];
+    if(entry.km) sub.push(z(nf(entry.km)) + ' km');
+    if(entry.laps) sub.push(z(entry.laps) + ' tr');
+    return `<div class="car-slot ${entry.hs?'is-hs':''}" data-tirekey="${entry.tireKey}">
+      <span class="slot-label">${entry.hs ? 'HS · '+info.label : info.label}</span>
+      <span class="slot-tireid">${z(escapeHtml(entry.tireId))}</span>
+      <span class="slot-sub">${sub.join(' · ') || '—'}</span>
+      ${barcodeFor(entry.tireId, 108, 11, '#F0C000', .5)}
     </div>`;
   };
 
+  const filled = ['AVG','AVD','ARG','ARD'].filter(p=>active.slots[p]).length;
   zone.innerHTML = `
     <div class="train-list">${list}</div>
     <div class="car-view">
-      ${slotHtml('AVG')}
-      ${slotHtml('AVD')}
-      <svg class="car-body-svg" width="120" height="230" viewBox="0 0 120 230" fill="none">
-        <rect x="10" y="10" width="100" height="210" rx="40" stroke="var(--line)" stroke-width="3"/>
-        <line x1="10" y1="72" x2="110" y2="72" stroke="var(--line)" stroke-width="2"/>
-        <line x1="10" y1="158" x2="110" y2="158" stroke="var(--line)" stroke-width="2"/>
-      </svg>
-      ${slotHtml('ARG')}
-      ${slotHtml('ARD')}
+      ${slotHtml('AVG')}${slotHtml('AVD')}
+      ${slotHtml('ARG')}${slotHtml('ARD')}
+    </div>
+    <div class="legend">TRAIN ${z(filled)}/${z(4)} POSITIONS<br>
+      ${escapeHtml(active.location)}${active.sessionType?' · '+escapeHtml(active.sessionType):''}${active.date?' · '+z(fmtDateShort(active.date)):''}
     </div>
   `;
   zone.querySelectorAll('.train-item').forEach(b=>{
@@ -1021,7 +1228,7 @@ async function startCamera(){
           );
           if(!decoderReady){
             decoderReady = true;
-            setScanStatus("Scanner actif — vise l'étiquette jaune, ou utilise 📷 Photo HD");
+            setScanStatus("Scanner actif — vise l'étiquette");
           }
           if(results && results.length && results[0].text){
             handleDetected(results[0].text);
@@ -1063,10 +1270,10 @@ function showCameraError(msg){
   const wrap = document.querySelector('.scan-wrap');
   if(!wrap) return;
   wrap.innerHTML = `
-    <div class="scan-header"><div class="back" id="scan-back-err">‹</div></div>
-    <div class="empty" style="color:#fff;padding-top:120px;">
+    <div class="scan-header"><button id="scan-back-err">← Retour</button></div>
+    <div class="empty" style="padding-top:110px;">
       <p>${msg}</p>
-      <button class="btn btn-primary" style="margin-top:16px;max-width:240px;" id="manual-btn2">Saisir manuellement</button>
+      <button class="btn btn-primary" style="margin:18px auto 0;max-width:250px;" id="manual-btn2">Saisir manuellement</button>
     </div>`;
   document.getElementById('scan-back-err').onclick = () => go('home');
   document.getElementById('manual-btn2').onclick = showManualEntry;
@@ -1077,18 +1284,18 @@ function renderScan(v){
   v.innerHTML = `
     <div class="scan-wrap">
       <div class="scan-header">
-        <div class="back" id="scan-back">‹</div>
-        <h1 style="font-family:'Oswald';color:#fff;font-size:16px;letter-spacing:1px;text-transform:uppercase;margin:0;">Scanner le pneu</h1>
+        <button id="scan-back">← Retour</button>
+        <button id="torch-btn" style="display:none;">⚡ Torche</button>
       </div>
       <div id="scanner-container"><video id="scan-video" playsinline muted autoplay></video></div>
       <div class="viewfinder" id="vf">
         <div class="vf-corner tl"></div><div class="vf-corner tr"></div>
         <div class="vf-corner bl"></div><div class="vf-corner br"></div>
+        <div class="laser"></div>
       </div>
       <div class="scan-hint" id="hint">
-        <p>Vise l'étiquette jaune FIA du pneu</p>
-        <button class="btn btn-primary btn-sm" id="photo-btn" style="margin:0 auto 10px;max-width:260px;">📷 &nbsp;Photo HD (recommandé)</button>
-        <button class="btn btn-ghost btn-sm" id="torch-btn" style="display:none;margin:0 auto 12px;">🔦 Torche</button>
+        <p>Vise l'étiquette FIA</p>
+        <button class="btn btn-primary btn-sm" id="photo-btn" style="margin:0 auto 12px;max-width:250px;">📷 Photo HD</button>
         <button class="manual-toggle" id="manual-btn">Saisir le code manuellement</button>
       </div>
     </div>
@@ -1162,7 +1369,7 @@ function photoHD(){
         playBeep();
         onBarcodeFound(code);
       }else{
-        setScanStatus("Photo illisible — rapproche-toi (étiquette bien à plat dans le cadre) et réessaie");
+        setScanStatus("Photo illisible — rapproche-toi et réessaie");
         showToast('Code non lu sur la photo');
       }
     }catch(e){
@@ -1175,11 +1382,14 @@ function photoHD(){
 
 function showManualEntry(){
   const wrap = document.querySelector('.scan-wrap');
+  if(!wrap) return;
+  const old = wrap.querySelector('.manual-sheet');
+  if(old) old.remove(); // jamais deux feuilles superposées
   const sheet = document.createElement('div');
   sheet.className = 'manual-sheet';
   sheet.innerHTML = `
-    <label>Code du pneu (DOT / série)</label>
-    <input type="text" id="manual-input" placeholder="Ex. DOT 3M7X 4523" autofocus>
+    <label>Code du pneu (étiquette FIA / DOT)</label>
+    <input type="text" id="manual-input" placeholder="Ex. 40218773" inputmode="text" autofocus>
     <div class="form-actions">
       <button class="btn btn-ghost" id="manual-cancel">Annuler</button>
       <button class="btn btn-primary" id="manual-ok">Valider</button>
@@ -1189,7 +1399,9 @@ function showManualEntry(){
   const input = document.getElementById('manual-input');
   const submit = () => {
     const val = input.value.trim();
-    if(val) onBarcodeFound(val);
+    if(!val) return;
+    sheet.remove();
+    onBarcodeFound(val);
   };
   document.getElementById('manual-cancel').onclick = () => sheet.remove();
   document.getElementById('manual-ok').onclick = submit;
@@ -1207,25 +1419,35 @@ async function onBarcodeFound(rawValue){
 function showPositionPicker(tire){
   const wrap = document.querySelector('.scan-wrap');
   if(!wrap){ go('detail', { tireKey: tire.key }); return; }
+  wrap.querySelectorAll('.manual-sheet').forEach(el=>el.remove());
+
   let selectedPosition = tire.position || null;
   let selectedSession = null;
 
   const sheet = document.createElement('div');
   sheet.className = 'manual-sheet';
   sheet.innerHTML = `
-    <label>Position sur le véhicule</label>
-    <div class="chips" id="pp-chips">
-      ${POSITIONS.map(p=>`<button class="chip ${tire.position===p.id?'active':''}" data-p="${p.id}" style="${tire.position===p.id?`background:${p.color};border-color:${p.color}`:''}">${p.label}</button>`).join('')}
+    <div class="tagline" style="margin:-18px -16px 14px;">
+      <span class="tcode">${z(escapeHtml(tire.id))}</span>
+      ${tire.position?`<span class="tpos">${tire.position}</span>`:''}
+    </div>
+
+    <label>Position sur la voiture</label>
+    <div class="poscar" id="pp-poscar">
+      <button data-p="AVG" class="${selectedPosition==='AVG'?'active':''}">AVG</button>
+      <button data-p="AVD" class="${selectedPosition==='AVD'?'active':''}">AVD</button>
+      <button data-p="ARG" class="${selectedPosition==='ARG'?'active':''}">ARG</button>
+      <button data-p="ARD" class="${selectedPosition==='ARD'?'active':''}">ARD</button>
     </div>
 
     <label>Session</label>
     <div class="chips" id="pp-session-chips">
       ${SESSION_TYPES.map(s=>`<button class="chip" data-s="${s}">${s}</button>`).join('')}
-      <button class="chip" data-s="AUTRE">AUTRE</button>
+      <button class="chip" data-s="AUTRE">Autre</button>
     </div>
-    <input type="text" id="pp-session-custom" placeholder="Nom de la session" style="display:none;margin-top:8px;">
+    <input type="text" id="pp-session-custom" placeholder="Nom de la session" style="display:none;margin-top:6px;">
 
-    <label>Compétition / événement</label>
+    <label>Compétition / lieu</label>
     <input type="text" id="pp-competition" placeholder="Ex. Course de côte de Chabrières">
 
     <div class="form-actions">
@@ -1235,14 +1457,11 @@ function showPositionPicker(tire){
   `;
   wrap.appendChild(sheet);
 
-  sheet.querySelectorAll('#pp-chips .chip').forEach(c=>{
-    c.onclick = () => {
-      selectedPosition = c.dataset.p;
-      sheet.querySelectorAll('#pp-chips .chip').forEach(x=>{
-        x.classList.toggle('active', x===c);
-        const info = posInfo(x.dataset.p);
-        x.style.background = x===c ? info.color : '';
-        x.style.borderColor = x===c ? info.color : '';
+  sheet.querySelectorAll('#pp-poscar button').forEach(b=>{
+    b.onclick = () => {
+      selectedPosition = (selectedPosition === b.dataset.p) ? null : b.dataset.p;
+      sheet.querySelectorAll('#pp-poscar button').forEach(x=>{
+        x.classList.toggle('active', x.dataset.p === selectedPosition);
       });
     };
   });
@@ -1266,35 +1485,39 @@ function showPositionPicker(tire){
   };
 }
 
-// ---------- Detail ----------
+// ---------- Fiche pneu ----------
 async function renderDetail(v){
   const tire = await getTire(state.tireKey);
   if(!tire){ go('home'); return; }
+  const pos = getEffectivePosition(tire);
   const totalLaps = tire.sessions.reduce((s,x)=>s+(Number(x.laps)||0),0);
-  const totalKm = Math.round(tire.sessions.reduce((s,x)=>s+(Number(x.km)||0),0) * 100) / 100;
+  const totalKm = Math.round(tire.sessions.reduce((s,x)=>s+(Number(x.km)||0),0) * 10) / 10;
+  const last = getLatestSession(tire);
 
   v.innerHTML = `
-    <header>
-      <div class="back" id="det-back">‹</div>
-      <div style="flex:1;min-width:0;">
-        <h1>${escapeHtml(tire.id)} ${tire.hs?'<span class="hs-pill">HS</span>':''}</h1>
-        <div class="sub">Enregistré le ${new Date(tire.createdAt).toLocaleDateString('fr-FR')}</div>
-      </div>
-      <button class="header-delete" id="delete-tire" title="Supprimer ce pneu">🗑</button>
-    </header>
+    <div class="navbar">
+      <button class="back" id="det-back">← Pneus</button>
+      <span class="title">Fiche pneu</span>
+      <span class="navright"><button class="icon-btn danger" id="delete-tire" title="Supprimer ce pneu">🗑</button></span>
+    </div>
+    <div class="hero ${tire.hs?'is-hs':''}">
+      ${barcodeFor(tire.id, 205, 34, '#141310', 1)}
+      <div class="hcode">${z(escapeHtml(tire.id))}</div>
+      <div class="hpos">${tire.hs ? 'HS' : (pos || '—')}</div>
+    </div>
+    <div class="strip"></div>
+    <div class="stats">
+      <div><div class="sv">${z(String(tire.sessions.length).padStart(2,'0'))}</div><div class="sk">Roulages</div></div>
+      <div><div class="sv">${totalKm ? z(nf(totalKm)) : '—'}</div><div class="sk">Km cumulés</div></div>
+      <div><div class="sv">${last && last.date ? z(fmtDateShort(last.date).slice(0,5)) : '—'}</div><div class="sk">Dernier</div></div>
+    </div>
     <main>
-      <div class="stat-row">
-        <div class="stat"><b>${tire.sessions.length}</b><span>Roulages</span></div>
-        <div class="stat"><b>${totalLaps}</b><span>Tours</span></div>
-        <div class="stat"><b>${totalKm||'—'}</b><span>Km</span></div>
+      <div class="actions">
+        <button class="btn btn-primary" id="add-session">＋ Ajouter un roulage</button>
+        ${tire.sessions.length ? `<button class="btn btn-ghost" id="dup-session" style="flex:0 0 108px;">⧉ Dupliquer</button>` : ''}
       </div>
-
-      <div class="row2" style="margin-bottom:12px;">
-        <button class="btn btn-primary" id="add-session" style="margin-bottom:0;">＋ Ajouter un roulage</button>
-        ${tire.sessions.length ? `<button class="btn btn-ghost" id="dup-session" style="margin-bottom:0;">⧉ Dupliquer le dernier</button>` : ''}
-      </div>
-      <button class="btn btn-ghost" id="toggle-hs" style="margin-bottom:22px;">${tire.hs ? '✅ Remettre en service' : '🚫 Déclarer HS'}</button>
-
+      <button class="btn ${tire.hs?'btn-ghost':'btn-danger'}" id="toggle-hs">${tire.hs ? '✅ Remettre en service' : '🚫 Déclarer HS'}</button>
+      <div class="sect"><span>Historique</span><span>${z(totalLaps)} tours cumulés</span></div>
       <div id="history"></div>
     </main>
   `;
@@ -1302,10 +1525,7 @@ async function renderDetail(v){
   document.getElementById('add-session').onclick = () => go('form', { tireKey: tire.key });
   const dupBtn = document.getElementById('dup-session');
   if(dupBtn){
-    dupBtn.onclick = () => {
-      const latest = getLatestSession(tire);
-      go('form', { tireKey: tire.key, duplicateFrom: latest || null });
-    };
+    dupBtn.onclick = () => go('form', { tireKey: tire.key, duplicateFrom: getLatestSession(tire) || null });
   }
   document.getElementById('toggle-hs').onclick = async () => {
     tire.hs = !tire.hs;
@@ -1329,42 +1549,57 @@ async function renderDetail(v){
   const ordered = [...tire.sessions].sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.id-a.id));
   hist.innerHTML = ordered.map((s, i)=>{
     const num = tire.sessions.length - i;
-    const meta = [];
-    if(s.laps) meta.push(`<div><b>${s.laps}</b> tours</div>`);
-    if(s.km) meta.push(`<div><b>${s.km}</b> km</div>`);
-    if(s.pressureCold || s.pressureHot) meta.push(`<div>Pression : <b>${s.pressureCold||'—'} → ${s.pressureHot||'—'} bar</b></div>`);
-    const sInfo = posInfo(s.position);
+    const head = [];
+    if(s.km) head.push(z(nf(s.km)) + ' km');
+    if(s.laps) head.push(z(s.laps) + ' tours');
+    const cells = [];
+    if(s.pressureCold) cells.push(`<div><div class="gk">Pression froid</div><div class="gv">${z(s.pressureCold)} <em>bar</em></div></div>`);
+    if(s.pressureHot)  cells.push(`<div><div class="gk">Pression chaud</div><div class="gv">${z(s.pressureHot)} <em>bar</em></div></div>`);
+    if(s.laps) cells.push(`<div><div class="gk">Tours</div><div class="gv">${z(s.laps)}</div></div>`);
+    if(s.km)   cells.push(`<div><div class="gk">Distance</div><div class="gv">${z(nf(s.km))} <em>km</em></div></div>`);
+    const nothing = !cells.length && !s.setup && !s.wear;
     return `
-      <div class="session ${opened.has(s.id)?'open':''}" data-idx="${i}" data-sid="${s.id}">
-        <div class="s-num">ROULAGE #${num} — ${fmtDate(s.date)} <span class="s-num-right">${s.km ? `${s.km} km` : ''}<span class="s-chevron">▾</span></span></div>
-        <div class="s-title">${escapeHtml(s.location) || 'Lieu non renseigné'} ${s.sessionType ? '· '+escapeHtml(s.sessionType) : ''}
-          ${s.position ? `<span class="pos-badge" style="--pos-color:${sInfo.color};margin-left:6px;">${sInfo.label}</span>` : ''}
+      <div class="session ${opened.has(s.id)?'open':''}" data-sid="${s.id}">
+        <div class="run-head">
+          <div class="run-num">${z(String(num).padStart(2,'0'))}</div>
+          <div class="run-main">
+            <div class="run-t">${escapeHtml(s.location) || 'Lieu non renseigné'}${s.sessionType ? ' · '+escapeHtml(s.sessionType) : ''}</div>
+            <div class="run-s">${z(fmtDateShort(s.date))}${head.length?' · '+head.join(' · '):''}${s.position?' · '+s.position:''}</div>
+          </div>
+          <div class="run-chev">▾</div>
         </div>
-        <div class="s-detail">
-          <div class="s-grid">${meta.join('')}</div>
-          ${s.setup ? `<div class="s-note"><b>Réglages :</b> ${escapeHtml(s.setup)}</div>` : ''}
-          ${s.wear ? `<div class="s-note" style="margin-top:4px;"><b>Usure :</b> ${escapeHtml(s.wear)}</div>` : ''}
-          ${!s.laps && !s.km && !s.pressureCold && !s.pressureHot && !s.setup && !s.wear ? `<div class="s-note">Aucun détail supplémentaire renseigné.</div>` : ''}
-          <div class="s-actions">
-            <button class="s-action-btn" data-action="edit" data-sid="${s.id}">Modifier</button>
-            <button class="s-action-btn s-action-delete" data-action="delete" data-sid="${s.id}">Supprimer</button>
+        <div class="run-body">
+          ${cells.length ? `<div class="grid2">${cells.join('')}</div>` : ''}
+          ${s.setup ? `<div class="note"><b>Réglages</b>${escapeHtml(s.setup)}</div>` : ''}
+          ${s.wear ? `<div class="note"><b>Usure constatée</b>${escapeHtml(s.wear)}</div>` : ''}
+          ${nothing ? `<div class="note">Aucun détail supplémentaire renseigné.</div>` : ''}
+          <div class="rowbtns">
+            <button data-action="edit" data-sid="${s.id}">Modifier</button>
+            <button data-action="dup" data-sid="${s.id}">Dupliquer</button>
+            <button class="del" data-action="delete" data-sid="${s.id}">Supprimer</button>
           </div>
         </div>
       </div>`;
   }).join('');
+
   hist.querySelectorAll('.session').forEach(el=>{
     const sid = Number(el.dataset.sid);
-    const toggle = () => {
+    el.querySelector('.run-head').onclick = () => {
       el.classList.toggle('open');
       if(el.classList.contains('open')) opened.add(sid); else opened.delete(sid);
     };
-    el.querySelector('.s-num').onclick = toggle;
-    el.querySelector('.s-title').onclick = toggle;
   });
   hist.querySelectorAll('[data-action="edit"]').forEach(btn=>{
     btn.onclick = (e) => {
       e.stopPropagation();
       go('form', { tireKey: tire.key, editSessionId: Number(btn.dataset.sid) });
+    };
+  });
+  hist.querySelectorAll('[data-action="dup"]').forEach(btn=>{
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const src = tire.sessions.find(x=>x.id===Number(btn.dataset.sid));
+      go('form', { tireKey: tire.key, duplicateFrom: src || null });
     };
   });
   hist.querySelectorAll('[data-action="delete"]').forEach(btn=>{
@@ -1382,7 +1617,8 @@ async function renderDetail(v){
     };
   });
 }
-// ---------- Form ----------
+
+// ---------- Formulaire ----------
 async function renderForm(v){
   const tire = await getTire(state.tireKey);
   if(!tire){ go('home'); return; }
@@ -1393,68 +1629,77 @@ async function renderForm(v){
   state.duplicateFrom = null;
   const source = editingSession || duplicateFrom;
 
-  const prefillSession = source ? source.sessionType : (state.prefillSession || '');
-  const prefillLocation = source ? source.location : (state.prefillLocation || '');
+  const prefillSession = (source ? source.sessionType : state.prefillSession) || '';
+  const prefillLocation = (source ? source.location : state.prefillLocation) || '';
   state.prefillSession = null;
   state.prefillLocation = null;
 
-  const sessionOptions = SESSION_TYPES.includes(prefillSession) || !prefillSession
-    ? SESSION_TYPES
-    : [prefillSession, ...SESSION_TYPES];
+  let selType = prefillSession;
+  let selPos = (source ? source.position : tire.position) || null;
+  const extraType = selType && !SESSION_TYPES.includes(selType) ? [selType] : [];
+  const typeList = [...extraType, ...SESSION_TYPES];
+
+  const title = editingSession ? 'Modifier le roulage'
+              : (duplicateFrom ? 'Dupliquer le roulage' : 'Nouveau roulage');
 
   v.innerHTML = `
-    <header>
-      <div class="back" id="form-back">‹</div>
-      <div>
-        <h1>${editingSession ? 'Modifier le roulage' : (duplicateFrom ? 'Dupliquer le roulage' : 'Nouveau roulage')}</h1>
-        <div class="sub">${escapeHtml(tire.id)}</div>
-      </div>
-    </header>
-    <main class="form-sheet">
-      <label>Date</label>
-      <input type="date" id="f-date" value="${source ? source.date : todayStr()}">
-
-      <label>Lieu / événement</label>
-      <input type="text" id="f-loc" placeholder="Ex. Charade, La Chatre…" value="${escapeHtml(prefillLocation)}">
-
-      <label>Type de session</label>
-      <select id="f-type">
-        ${sessionOptions.map(t=>`<option ${t===prefillSession?'selected':''}>${escapeHtml(t)}</option>`).join('')}
-      </select>
-
+    <div class="navbar">
+      <button class="back" id="form-back">← Annuler</button>
+      <span class="title">${title}</span>
+      <span class="navright"></span>
+    </div>
+    <div class="tagline">
+      <span class="tcode">${z(escapeHtml(tire.id))}</span>
+      ${selPos?`<span class="tpos" id="tag-pos">${selPos}</span>`:'<span class="tpos" id="tag-pos" style="display:none;"></span>'}
+    </div>
+    <div class="strip"></div>
+    <main>
       <div class="row2">
+        <div>
+          <label>Date</label>
+          <input type="date" id="f-date" value="${source ? source.date : todayStr()}">
+        </div>
         <div>
           <label>Tours</label>
           <input type="number" id="f-laps" inputmode="numeric" placeholder="0" value="${source && source.laps ? source.laps : ''}">
         </div>
-        <div>
-          <label>Distance (km)</label>
-          <input type="number" id="f-km" inputmode="decimal" placeholder="0" value="${source && source.km ? source.km : ''}">
-        </div>
+      </div>
+
+      <label>Lieu / compétition</label>
+      <input type="text" id="f-loc" placeholder="Ex. Chabrières, La Châtre…" value="${escapeHtml(prefillLocation)}">
+
+      <label>Type de session</label>
+      <div class="chips" id="f-types">
+        ${typeList.map(t=>`<button class="chip ${t===selType?'active':''}" data-t="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join('')}
+      </div>
+
+      <label>Position sur la voiture</label>
+      <div class="poscar" id="f-poscar">
+        <button data-p="AVG" class="${selPos==='AVG'?'active':''}">AVG</button>
+        <button data-p="AVD" class="${selPos==='AVD'?'active':''}">AVD</button>
+        <button data-p="ARG" class="${selPos==='ARG'?'active':''}">ARG</button>
+        <button data-p="ARD" class="${selPos==='ARD'?'active':''}">ARD</button>
       </div>
 
       <div class="row2">
         <div>
-          <label>Pression à froid (bar)</label>
-          <input type="number" step="0.1" id="f-pcold" inputmode="decimal" placeholder="1.8" value="${source && source.pressureCold ? source.pressureCold : ''}">
+          <label>Pression froid</label>
+          <div class="unit"><input type="number" step="0.05" id="f-pcold" inputmode="decimal" placeholder="1.80" value="${source && source.pressureCold ? source.pressureCold : ''}"><span>bar</span></div>
         </div>
         <div>
-          <label>Pression à chaud (bar)</label>
-          <input type="number" step="0.1" id="f-phot" inputmode="decimal" placeholder="2.1" value="${source && source.pressureHot ? source.pressureHot : ''}">
+          <label>Pression chaud</label>
+          <div class="unit"><input type="number" step="0.05" id="f-phot" inputmode="decimal" placeholder="2.10" value="${source && source.pressureHot ? source.pressureHot : ''}"><span>bar</span></div>
         </div>
       </div>
 
-      <label>Emplacement du pneu</label>
-      <select id="f-position">
-        <option value="">— Non renseigné —</option>
-        ${POSITIONS.map(p=>`<option value="${p.id}" ${ (source ? source.position : tire.position)===p.id ? 'selected':''}>${escapeHtml(p.label)}</option>`).join('')}
-      </select>
+      <label>Distance</label>
+      <div class="unit"><input type="number" step="0.1" id="f-km" inputmode="decimal" placeholder="0" value="${source && source.km ? source.km : ''}"><span>km</span></div>
 
-      <label>Réglages (carrossage, parallélisme…)</label>
-      <textarea id="f-setup" placeholder="Ex. carrossage -2.5°, parallélisme +1mm">${source ? escapeHtml(source.setup||'') : ''}</textarea>
+      <label>Réglages</label>
+      <textarea id="f-setup" placeholder="Carrossage, parallélisme, barre, amortisseurs…">${source ? escapeHtml(source.setup||'') : ''}</textarea>
 
-      <label>Notes d'usure</label>
-      <textarea id="f-wear" placeholder="Ex. usure épaule extérieure, léger graining">${editingSession ? escapeHtml(editingSession.wear||'') : ''}</textarea>
+      <label>Usure constatée</label>
+      <textarea id="f-wear" placeholder="État des épaulements, granulation…">${editingSession ? escapeHtml(editingSession.wear||'') : ''}</textarea>
 
       <div class="form-actions">
         <button class="btn btn-ghost" id="form-cancel">Annuler</button>
@@ -1462,6 +1707,25 @@ async function renderForm(v){
       </div>
     </main>
   `;
+
+  const tagPos = document.getElementById('tag-pos');
+  v.querySelectorAll('#f-types .chip').forEach(c=>{
+    c.onclick = () => {
+      selType = (selType === c.dataset.t) ? '' : c.dataset.t;
+      v.querySelectorAll('#f-types .chip').forEach(x=>x.classList.toggle('active', x.dataset.t === selType));
+    };
+  });
+  v.querySelectorAll('#f-poscar button').forEach(b=>{
+    b.onclick = () => {
+      selPos = (selPos === b.dataset.p) ? null : b.dataset.p;
+      v.querySelectorAll('#f-poscar button').forEach(x=>x.classList.toggle('active', x.dataset.p === selPos));
+      if(tagPos){
+        tagPos.textContent = selPos || '';
+        tagPos.style.display = selPos ? '' : 'none';
+      }
+    };
+  });
+
   document.getElementById('form-back').onclick = () => go('detail', { tireKey: tire.key });
   document.getElementById('form-cancel').onclick = () => go('detail', { tireKey: tire.key });
   document.getElementById('form-save').onclick = async () => {
@@ -1469,8 +1733,8 @@ async function renderForm(v){
       id: editingSession ? editingSession.id : Date.now(),
       date: document.getElementById('f-date').value || todayStr(),
       location: document.getElementById('f-loc').value.trim(),
-      sessionType: document.getElementById('f-type').value,
-      position: document.getElementById('f-position').value || null,
+      sessionType: selType || '',
+      position: selPos || null,
       laps: document.getElementById('f-laps').value,
       km: document.getElementById('f-km').value,
       pressureCold: document.getElementById('f-pcold').value,
@@ -1484,6 +1748,7 @@ async function renderForm(v){
     } else {
       tire.sessions.push(session);
     }
+    if(session.position) tire.position = session.position;
     const ok = await saveTire(tire.key, tire);
     openSet(tire.key).add(session.id); // le roulage reste déplié au retour
     showToast(ok ? (editingSession ? 'Roulage modifié' : 'Roulage enregistré') : "Erreur d'enregistrement");
