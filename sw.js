@@ -1,8 +1,9 @@
 // Service worker — Suivi des Pneus
 // Stratégie : cache-first avec mise à jour en arrière-plan (stale-while-revalidate)
 // pour que l'app fonctionne intégralement hors ligne (paddock sans réseau).
+// ⚠️ Bump CACHE à chaque déploiement, sinon le téléphone garde l'ancienne version.
 
-const CACHE = 'suivi-pneus-v13';
+const CACHE = 'suivi-pneus-v14';
 
 const PRECACHE = [
   './',

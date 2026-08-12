@@ -268,8 +268,9 @@ const POSITIONS = [
   {id:'ARG', label:'AR. GAUCHE', color:'#4C9AFF'},
 ];
 const SESSION_TYPES = ['EL1','EL2','Q','C1','C2','C3','C4'];
+const APP_VERSION = 'v11';
 
-let state = { view: 'home', tireKey: null, filterPos: null, quaggaRunning: false, homeTab: 'pneus', showHS: false, trainKey: null };
+let state = { view: 'home', tireKey: null, filterPos: null, homeTab: 'pneus', showHS: false, trainKey: null };
 
 function posInfo(id){ return POSITIONS.find(p=>p.id===id) || {label:id||'—', color:'#FF5A1F'}; }
 function getLatestSession(t){
@@ -302,16 +303,13 @@ function buildTrainGroups(tires){
   });
   return [...map.values()].sort((a,b)=> (b.date||'').localeCompare(a.date||''));
 }
-function latestSession(t){
-  if(!t.sessions || t.sessions.length===0) return null;
-  return t.sessions.reduce((a,b)=>{
-    const c = (b.date||'').localeCompare(a.date||'') || (b.id-a.id);
-    return c>0 ? b : a;
-  });
-}
 function sanitizeKey(raw){ return ('t_'+raw).replace(/[^a-zA-Z0-9_.:-]/g,'_').slice(0,190); }
 function todayStr(){ return new Date().toISOString().slice(0,10); }
-function fmtDate(d){ const [y,m,day]=d.split('-'); return `${day}/${m}/${y}`; }
+function fmtDate(d){
+  if(!d) return '—';
+  const [y,m,day] = String(d).split('-');
+  return day ? `${day}/${m}/${y}` : String(d);
+}
 function showToast(msg){
   const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'), 1800);
@@ -376,6 +374,8 @@ async function saveTire(key, tire){
 }
 async function deleteTire(key){
   try{ localStorage.removeItem(STORE_PREFIX+key); }catch(e){}
+  delete openSessions[key];
+  delete scrollMemory['detail:'+key];
   const idx = await getIndex();
   await saveIndex(idx.filter(k=>k!==key));
 }
@@ -419,15 +419,15 @@ function csvCell(v){
 async function exportCSV(){
   const tires = await getAllTires();
   if(tires.length===0){ showToast('Aucune donnée à exporter'); return; }
-  const header = ['pneu','position','date','lieu','session','tours','km','pression_froid_bar','pression_chaud_bar','temp_pneu_c','reglages','usure'];
+  const header = ['pneu','position','date','lieu','session','tours','km','pression_froid_bar','pression_chaud_bar','reglages','usure'];
   const rows = [header.join(';')];
   tires.forEach(t=>{
     if(t.sessions.length===0){
-      rows.push([t.id, t.position||'', '', '', '', '', '', '', '', '', '', ''].map(csvCell).join(';'));
+      rows.push([t.id, t.position||'', '', '', '', '', '', '', '', '', ''].map(csvCell).join(';'));
     }
     t.sessions.forEach(s=>{
       rows.push([t.id, s.position||t.position||'', s.date, s.location, s.sessionType, s.laps, s.km,
-        s.pressureCold, s.pressureHot, s.temp, s.setup, s.wear].map(csvCell).join(';'));
+        s.pressureCold, s.pressureHot, s.setup, s.wear].map(csvCell).join(';'));
     });
   });
   // BOM pour qu'Excel FR reconnaisse l'UTF-8
@@ -500,16 +500,54 @@ function showDataSheet(){
   document.getElementById('ds-close').onclick = close;
 }
 
+// ---------- Mémoire de position (scroll + accordéons) ----------
+// Chaque vue garde sa position de défilement : revenir d'un pneu ou d'un roulage
+// ne renvoie plus en haut de la liste.
+const scrollMemory = {};
+const openSessions = {}; // tireKey -> Set des ids de roulages dépliés
+
+function scrollEl(){ return document.scrollingElement || document.documentElement; }
+function viewScrollKey(st){
+  if(st.view==='home') return 'home:'+(st.homeTab||'pneus')+':'+(st.filterPos||'');
+  if(st.view==='detail') return 'detail:'+st.tireKey;
+  return null; // scan / form : toujours en haut
+}
+function rememberScroll(){
+  const k = viewScrollKey(state);
+  if(k) scrollMemory[k] = scrollEl().scrollTop || 0;
+}
+function restoreScroll(){
+  const k = viewScrollKey(state);
+  const y = (k && scrollMemory[k]) || 0;
+  scrollEl().scrollTop = y;
+  // second passage après layout : les cartes/accordéons viennent d'être insérés
+  requestAnimationFrame(()=>{ scrollEl().scrollTop = y; });
+}
+function openSet(tireKey){
+  if(!openSessions[tireKey]) openSessions[tireKey] = new Set();
+  return openSessions[tireKey];
+}
+
 // ---------- Router ----------
 function render(){
   stopCamera();
   const v = document.getElementById('view');
-  if(state.view==='home') return renderHome(v);
-  if(state.view==='scan') return renderScan(v);
-  if(state.view==='detail') return renderDetail(v);
-  if(state.view==='form') return renderForm(v);
+  let p = null;
+  if(state.view==='home') p = renderHome(v);
+  else if(state.view==='scan') p = renderScan(v);
+  else if(state.view==='detail') p = renderDetail(v);
+  else if(state.view==='form') p = renderForm(v);
+  const target = state.view;
+  return Promise.resolve(p).then(()=>{
+    // si le rendu a redirigé (pneu introuvable), c'est l'autre render qui restaure
+    if(state.view===target) restoreScroll();
+  });
 }
-function go(view, opts={}){ state = {...state, ...opts, view}; render(); }
+function go(view, opts={}){
+  rememberScroll();
+  state = {...state, ...opts, view};
+  return render();
+}
 
 // ---------- Home ----------
 function tireCardHtml(t){
@@ -858,7 +896,6 @@ function fiaDecodeRegion(srcCanvas, reg, scale){
 }
 
 // ---------- Scanner (caméra gérée en direct + décodage ZXing-C++ WebAssembly) ----------
-const APP_VERSION = 'v10';
 let detectionLocked = false;
 let recentReads = [];
 let scanStream = null;
@@ -867,7 +904,6 @@ let scanAbort = false;
 function stopCamera(){
   scanAbort = true;
   if(scanStream){ try{ scanStream.getTracks().forEach(t=>t.stop()); }catch(e){} scanStream = null; }
-  state.quaggaRunning = false;
 }
 
 function setScanStatus(msg){
@@ -892,7 +928,6 @@ async function startCamera(){
     });
     video.srcObject = scanStream;
     await video.play();
-    state.quaggaRunning = true;
     setupTorch();
     setScanStatus('Chargement du décodeur…');
 
@@ -1228,6 +1263,7 @@ async function renderDetail(v){
     hist.innerHTML = `<div class="empty"><p>Aucun roulage enregistré pour ce pneu.</p></div>`;
     return;
   }
+  const opened = openSet(tire.key);
   const ordered = [...tire.sessions].sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.id-a.id));
   hist.innerHTML = ordered.map((s, i)=>{
     const num = tire.sessions.length - i;
@@ -1235,10 +1271,9 @@ async function renderDetail(v){
     if(s.laps) meta.push(`<div><b>${s.laps}</b> tours</div>`);
     if(s.km) meta.push(`<div><b>${s.km}</b> km</div>`);
     if(s.pressureCold || s.pressureHot) meta.push(`<div>Pression : <b>${s.pressureCold||'—'} → ${s.pressureHot||'—'} bar</b></div>`);
-    if(s.temp) meta.push(`<div>Temp. pneu : <b>${s.temp}°C</b></div>`);
     const sInfo = posInfo(s.position);
     return `
-      <div class="session" data-idx="${i}">
+      <div class="session ${opened.has(s.id)?'open':''}" data-idx="${i}" data-sid="${s.id}">
         <div class="s-num">ROULAGE #${num} — ${fmtDate(s.date)} <span class="s-num-right">${s.km ? `${s.km} km` : ''}<span class="s-chevron">▾</span></span></div>
         <div class="s-title">${escapeHtml(s.location) || 'Lieu non renseigné'} ${s.sessionType ? '· '+escapeHtml(s.sessionType) : ''}
           ${s.position ? `<span class="pos-badge" style="--pos-color:${sInfo.color};margin-left:6px;">${sInfo.label}</span>` : ''}
@@ -1247,7 +1282,7 @@ async function renderDetail(v){
           <div class="s-grid">${meta.join('')}</div>
           ${s.setup ? `<div class="s-note"><b>Réglages :</b> ${escapeHtml(s.setup)}</div>` : ''}
           ${s.wear ? `<div class="s-note" style="margin-top:4px;"><b>Usure :</b> ${escapeHtml(s.wear)}</div>` : ''}
-          ${!s.laps && !s.km && !s.pressureCold && !s.pressureHot && !s.temp && !s.setup && !s.wear ? `<div class="s-note">Aucun détail supplémentaire renseigné.</div>` : ''}
+          ${!s.laps && !s.km && !s.pressureCold && !s.pressureHot && !s.setup && !s.wear ? `<div class="s-note">Aucun détail supplémentaire renseigné.</div>` : ''}
           <div class="s-actions">
             <button class="s-action-btn" data-action="edit" data-sid="${s.id}">Modifier</button>
             <button class="s-action-btn s-action-delete" data-action="delete" data-sid="${s.id}">Supprimer</button>
@@ -1256,8 +1291,13 @@ async function renderDetail(v){
       </div>`;
   }).join('');
   hist.querySelectorAll('.session').forEach(el=>{
-    el.querySelector('.s-num').onclick = () => el.classList.toggle('open');
-    el.querySelector('.s-title').onclick = () => el.classList.toggle('open');
+    const sid = Number(el.dataset.sid);
+    const toggle = () => {
+      el.classList.toggle('open');
+      if(el.classList.contains('open')) opened.add(sid); else opened.delete(sid);
+    };
+    el.querySelector('.s-num').onclick = toggle;
+    el.querySelector('.s-title').onclick = toggle;
   });
   hist.querySelectorAll('[data-action="edit"]').forEach(btn=>{
     btn.onclick = (e) => {
@@ -1269,10 +1309,14 @@ async function renderDetail(v){
     btn.onclick = async (e) => {
       e.stopPropagation();
       if(!confirm('Supprimer ce roulage ? Cette action est définitive.')) return;
-      tire.sessions = tire.sessions.filter(x=>x.id !== Number(btn.dataset.sid));
+      const sid = Number(btn.dataset.sid);
+      tire.sessions = tire.sessions.filter(x=>x.id !== sid);
+      opened.delete(sid);
       const ok = await saveTire(tire.key, tire);
       showToast(ok ? 'Roulage supprimé' : "Erreur de suppression");
-      renderDetail(v);
+      rememberScroll();
+      await renderDetail(v);
+      restoreScroll();
     };
   });
 }
@@ -1379,6 +1423,7 @@ async function renderForm(v){
       tire.sessions.push(session);
     }
     const ok = await saveTire(tire.key, tire);
+    openSet(tire.key).add(session.id); // le roulage reste déplié au retour
     showToast(ok ? (editingSession ? 'Roulage modifié' : 'Roulage enregistré') : "Erreur d'enregistrement");
     go('detail', { tireKey: tire.key });
   };
