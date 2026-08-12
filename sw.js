@@ -7,7 +7,7 @@
 //  - reste des ressources : cache d'abord + revalidation en arrière-plan.
 //  - précache tolérant : un fichier manquant (manifest, icône) ne casse plus l'install.
 
-const VERSION = 'v17';
+const VERSION = 'v19';
 const CACHE = 'suivi-pneus-' + VERSION;
 
 // Indispensable : si ça échoue, l'install échoue (et c'est voulu).

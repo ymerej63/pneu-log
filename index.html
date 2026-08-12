@@ -49,10 +49,6 @@
     display:flex;flex-direction:column;position:relative;background:var(--blk);
   }
 
-  /* Zéro dessiné : le DOM conserve un vrai « 0 » (recherche, copie, export). */
-  .z0{display:inline-block;width:1ch;height:.72em;vertical-align:baseline;position:relative;}
-  .z0 svg{position:absolute;left:50%;transform:translateX(-50%);height:100%;width:auto;}
-
   .strip{
     height:7px;flex-shrink:0;
     background:repeating-linear-gradient(90deg,var(--blk) 0 5px,var(--yel) 5px 8px);
@@ -149,13 +145,18 @@
   .card.card-hs .vig{background:var(--red);color:#fff;}
   .card.card-hs{opacity:.6;}
   .card .info{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;}
+  .card .codeline{display:flex;align-items:baseline;gap:8px;}
   .card .code{
     font-family:var(--f-num);font-size:19px;letter-spacing:.4px;line-height:1;
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .card .cdate{
+    font-family:var(--f-num);font-size:10.5px;color:var(--grey);flex-shrink:0;
   }
   .card .sub{
     font-family:var(--f-num);font-size:10.5px;text-transform:uppercase;
     color:var(--grey);margin-top:5px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   }
   .card .sub b{color:var(--off);font-weight:400;}
   .hs-toggle{
@@ -444,7 +445,7 @@ const POSITIONS = [
   {id:'ARG', label:'AR. GAUCHE', color:'#4C9AFF'},
 ];
 const SESSION_TYPES = ['EL1','EL2','Q','C1','C2','C3','C4'];
-const APP_VERSION = 'v14';
+const APP_VERSION = 'v16';
 
 let state = { view: 'home', tireKey: null, filterPos: null, homeTab: 'pneus', showHS: false, trainKey: null };
 
@@ -773,10 +774,10 @@ function go(view, opts={}){
 // Le zéro d'OCR-B porte une pastille centrale absente des vraies étiquettes.
 // On le remplace par un ovale vectoriel : le texte du DOM reste un vrai « 0 »,
 // donc recherche, copier-coller et exports ne sont pas affectés.
-const ZERO_SVG = '<span class="z0"><svg viewBox="0 0 72 100">'
-  + '<rect x="7" y="7" width="58" height="86" rx="29" ry="29" fill="none" '
-  + 'stroke="currentColor" stroke-width="12"/></svg></span>';
-function z(text){ return String(text ?? '').replace(/0/g, ZERO_SVG); }
+// Les chiffres s'affichent tels que la police les dessine (OCR-B d'origine).
+// z() reste le point de passage unique des valeurs numériques affichées :
+// si un traitement typographique redevient nécessaire, il se branche ici seul.
+function z(text){ return String(text ?? ''); }
 
 // Code-barres Interleaved 2 of 5 — même symbologie que les étiquettes FIA.
 const ITF_ENC = {'0':'NNWWN','1':'WNNNW','2':'NWNNW','3':'WWNNN','4':'NNWNW',
@@ -820,12 +821,14 @@ function tireCardHtml(t){
   const km = Math.round(t.sessions.reduce((s,x)=>s+(Number(x.km)||0),0) * 10) / 10;
   const bits = [`<b>${z(n)}</b> roulage${n>1?'s':''}`];
   if(km) bits.push(`<b>${z(nf(km))}</b> km`);
-  if(last && last.date) bits.push(z(fmtDateShort(last.date)));
   return `
     <div class="card ${t.hs?'card-hs':''}" data-key="${t.key}">
       <div class="vig"><span>${t.hs ? 'HS' : (pos || '—')}</span></div>
       <div class="info">
-        <div class="code">${z(escapeHtml(t.id))}</div>
+        <div class="codeline">
+          <span class="code">${z(escapeHtml(t.id))}</span>
+          <span class="cdate">${last && last.date ? z(fmtDateShort(last.date)) : ''}</span>
+        </div>
         <div class="sub">${bits.join(' · ')}</div>
       </div>
     </div>`;
