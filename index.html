@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/zxing-wasm@2/dist/iife/reader/index.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/zxing-wasm@2/dist/iife/reader/index.js"></script>
 <style>
   :root{
     --asphalt:#121417;
@@ -245,6 +245,24 @@
   .home-sheet .btn{margin-bottom:10px;}
   .home-sheet .hint{font-size:12px;color:var(--chalk-dim);line-height:1.45;margin:4px 0 14px;}
 
+  .update-banner{
+    position:fixed;left:50%;transform:translateX(-50%);
+    bottom:calc(84px + env(safe-area-inset-bottom,0px));
+    display:flex;align-items:center;gap:12px;z-index:31;
+    background:var(--asphalt-3);border:1px solid var(--flag);border-radius:12px;
+    padding:10px 12px 10px 16px;font-size:13px;max-width:calc(100% - 32px);
+  }
+  .update-banner button{
+    font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:.5px;font-weight:600;
+    font-size:12px;background:var(--flag);color:#161616;border:none;border-radius:8px;
+    padding:8px 12px;cursor:pointer;
+  }
+  .offline-badge{
+    display:none;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;
+    font-size:10px;letter-spacing:.5px;color:var(--amber);
+    border:1px solid #5a4415;background:#2a2110;border-radius:20px;padding:3px 9px;
+  }
+  .offline-badge.show{display:inline-flex;}
   .toast{
     position:fixed;bottom:100px;left:50%;transform:translateX(-50%);
     background:var(--asphalt-3);border:1px solid var(--line);padding:10px 18px;border-radius:20px;
@@ -268,7 +286,7 @@ const POSITIONS = [
   {id:'ARG', label:'AR. GAUCHE', color:'#4C9AFF'},
 ];
 const SESSION_TYPES = ['EL1','EL2','Q','C1','C2','C3','C4'];
-const APP_VERSION = 'v11';
+const APP_VERSION = 'v12';
 
 let state = { view: 'home', tireKey: null, filterPos: null, homeTab: 'pneus', showHS: false, trainKey: null };
 
@@ -319,11 +337,52 @@ function escapeHtml(str){
 }
 
 // ---------- Service worker (offline) ----------
+let swWaiting = null;
 if('serviceWorker' in navigator && location.protocol === 'https:'){
   window.addEventListener('load', ()=>{
-    navigator.serviceWorker.register('sw.js').catch(e=>console.warn('SW registration failed', e));
+    navigator.serviceWorker.register('sw.js').then(reg=>{
+      // une nouvelle version est prête : on propose de recharger
+      const watch = (worker)=>{
+        if(!worker) return;
+        worker.addEventListener('statechange', ()=>{
+          if(worker.state==='installed' && navigator.serviceWorker.controller){
+            swWaiting = worker;
+            showUpdateBanner();
+          }
+        });
+      };
+      if(reg.waiting && navigator.serviceWorker.controller){
+        swWaiting = reg.waiting;
+        showUpdateBanner();
+      }
+      reg.addEventListener('updatefound', ()=> watch(reg.installing));
+      // vérifie les mises à jour au retour au premier plan
+      document.addEventListener('visibilitychange', ()=>{
+        if(!document.hidden) reg.update().catch(()=>{});
+      });
+    }).catch(e=>console.warn('SW registration failed', e));
   });
 }
+function showUpdateBanner(){
+  if(document.getElementById('update-banner')) return;
+  const b = document.createElement('div');
+  b.id = 'update-banner';
+  b.className = 'update-banner';
+  b.innerHTML = `<span>Nouvelle version disponible</span><button id="update-now">Recharger</button>`;
+  document.body.appendChild(b);
+  document.getElementById('update-now').onclick = ()=>{
+    if(swWaiting) swWaiting.postMessage({type:'SKIP_WAITING'});
+    location.reload();
+  };
+}
+
+// ---------- Indicateur hors ligne ----------
+function updateOnlineBadge(){
+  const el = document.getElementById('offline-badge');
+  if(el) el.classList.toggle('show', !navigator.onLine);
+}
+window.addEventListener('online', ()=>{ updateOnlineBadge(); showToast('Connexion rétablie'); });
+window.addEventListener('offline', ()=>{ updateOnlineBadge(); });
 
 // ---------- Beep ----------
 let audioCtx = null;
@@ -574,7 +633,9 @@ async function renderHome(v){
     <header>
       <div style="flex:1;">
         <h1>Suivi des Pneus</h1>
-        <div class="sub">${APP_VERSION} · scanner FIA</div>
+        <div class="sub">${APP_VERSION} · scanner FIA
+          <span class="offline-badge" id="offline-badge">● HORS LIGNE</span>
+        </div>
       </div>
       <button class="back" id="data-btn" title="Sauvegarde / export">⇅</button>
     </header>
@@ -583,6 +644,7 @@ async function renderHome(v){
   `;
   document.getElementById('scan-fab').onclick = () => go('scan');
   document.getElementById('data-btn').onclick = showDataSheet;
+  updateOnlineBadge();
 
   const idx = await getIndex();
   const tires = (await Promise.all(idx.map(getTire))).filter(Boolean);
