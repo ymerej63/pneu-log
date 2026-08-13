@@ -166,13 +166,57 @@
   }
 
   /* ---------- Vue Train ---------- */
-  .train-list{display:flex;gap:6px;overflow-x:auto;margin-bottom:15px;padding-bottom:3px;}
-  .train-item{
-    flex-shrink:0;font-family:var(--f-lbl);font-weight:600;font-size:13px;letter-spacing:.9px;
-    text-transform:uppercase;padding:6px 11px;cursor:pointer;white-space:nowrap;
-    background:var(--card);color:var(--grey);border:1px solid var(--line);
+  /* Sélecteur de course : bouton pleine largeur + feuille de choix */
+  .train-select{
+    width:100%;display:flex;align-items:center;gap:10px;margin-bottom:15px;
+    background:var(--card);border:1px solid var(--line);border-left:3px solid var(--yel);
+    padding:11px 13px;cursor:pointer;text-align:left;color:var(--off);
   }
-  .train-item.active{background:var(--yel);color:var(--blk);border-color:var(--yel);}
+  .train-select .ts-main{flex:1;min-width:0;}
+  .train-select .ts-loc{
+    font-family:var(--f-lbl);font-weight:700;font-size:16px;letter-spacing:.9px;
+    text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .train-select .ts-sub{font-family:var(--f-num);font-size:10.5px;color:var(--grey);margin-top:3px;}
+  .train-select .ts-chev{color:var(--yel);font-size:12px;flex-shrink:0;}
+
+  .picker-sheet{
+    position:fixed;bottom:0;left:50%;transform:translateX(-50%);
+    max-width:480px;width:100%;background:var(--card);border-top:2px solid var(--yel);
+    z-index:16;display:flex;flex-direction:column;max-height:82vh;
+  }
+  .picker-head{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:15px 16px 12px;border-bottom:1px solid var(--line);flex-shrink:0;
+  }
+  .picker-head h2{font-family:var(--f-disp);text-transform:uppercase;font-size:15px;margin:0;}
+  .picker-head button{
+    background:none;border:none;color:var(--grey);font-family:var(--f-lbl);font-weight:600;
+    font-size:14px;letter-spacing:1.2px;text-transform:uppercase;cursor:pointer;padding:4px;
+  }
+  .picker-body{
+    overflow-y:auto;-webkit-overflow-scrolling:touch;
+    padding:6px 16px calc(18px + env(safe-area-inset-bottom,0px));
+  }
+  .picker-group{padding:13px 0;border-bottom:1px solid var(--line);}
+  .picker-group:last-child{border-bottom:none;}
+  .picker-group .pg-head{
+    display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:9px;
+  }
+  .picker-group .pg-loc{
+    font-family:var(--f-lbl);font-weight:700;font-size:15px;letter-spacing:.9px;
+    text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .picker-group .pg-date{font-family:var(--f-num);font-size:10.5px;color:var(--grey);flex-shrink:0;}
+  .picker-group .pg-sessions{display:flex;gap:6px;flex-wrap:wrap;}
+  .pg-chip{
+    font-family:var(--f-lbl);font-weight:600;font-size:14px;letter-spacing:1.1px;
+    text-transform:uppercase;padding:8px 14px;cursor:pointer;
+    background:var(--card2);color:var(--off);border:1px solid var(--line);
+  }
+  .pg-chip .pg-count{font-family:var(--f-num);font-size:9.5px;color:var(--grey);margin-left:5px;}
+  .pg-chip.active{background:var(--yel);color:var(--blk);border-color:var(--yel);}
+  .pg-chip.active .pg-count{color:#5A4E15;}
   .car-view{display:grid;grid-template-columns:1fr 1fr;gap:9px;position:relative;}
   .car-view::before{
     content:'';position:absolute;left:50%;top:6%;bottom:6%;width:1px;
@@ -445,7 +489,7 @@ const POSITIONS = [
   {id:'ARG', label:'AR. GAUCHE', color:'#4C9AFF'},
 ];
 const SESSION_TYPES = ['EL1','EL2','Q','C1','C2','C3','C4'];
-const APP_VERSION = 'v16';
+const APP_VERSION = 'v17';
 
 let state = { view: 'home', tireKey: null, filterPos: null, homeTab: 'pneus', showHS: false, trainKey: null };
 
@@ -939,6 +983,63 @@ function bindHomeTabs(main){
   main.querySelector('#data-btn').onclick = showDataSheet;
 }
 
+// Sélection de la course : les sessions sont regroupées par lieu,
+// ce qui évite de faire défiler une barre interminable en fin de saison.
+function showTrainPicker(groups){
+  const byPlace = new Map();
+  groups.forEach(g=>{
+    const k = (g.location||'—').trim().toLowerCase();
+    if(!byPlace.has(k)) byPlace.set(k, { location: g.location||'—', date: g.date||'', items: [] });
+    const p = byPlace.get(k);
+    if((g.date||'') > p.date) p.date = g.date||'';
+    p.items.push(g);
+  });
+  const places = [...byPlace.values()].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  places.forEach(p=>p.items.sort((a,b)=>
+    (a.sessionType||'').localeCompare(b.sessionType||'', 'fr', {numeric:true})));
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'sheet-backdrop';
+  const sheet = document.createElement('div');
+  sheet.className = 'picker-sheet';
+  sheet.innerHTML = `
+    <div class="picker-head">
+      <h2>Choisir la course</h2>
+      <button id="tp-close">Fermer</button>
+    </div>
+    <div class="picker-body">
+      ${places.map(p=>`
+        <div class="picker-group">
+          <div class="pg-head">
+            <span class="pg-loc">${escapeHtml(p.location)}</span>
+            <span class="pg-date">${p.date?z(fmtDateShort(p.date)):''}</span>
+          </div>
+          <div class="pg-sessions">
+            ${p.items.map(g=>{
+              const filled = ['AVG','AVD','ARG','ARD'].filter(x=>g.slots[x]).length;
+              return `<button class="pg-chip ${g.key===state.trainKey?'active':''}" data-key="${escapeHtml(g.key)}">
+                ${escapeHtml(g.sessionType || 'Session')}<span class="pg-count">${z(filled)}/${z(4)}</span>
+              </button>`;
+            }).join('')}
+          </div>
+        </div>`).join('')}
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  document.body.appendChild(sheet);
+
+  const close = () => { backdrop.remove(); sheet.remove(); };
+  backdrop.onclick = close;
+  sheet.querySelector('#tp-close').onclick = close;
+  sheet.querySelectorAll('.pg-chip').forEach(b=>{
+    b.onclick = () => { close(); go('home', { homeTab:'train', trainKey: b.dataset.key }); };
+  });
+
+  // on ouvre directement sur la course sélectionnée
+  const current = sheet.querySelector('.pg-chip.active');
+  if(current) current.closest('.picker-group').scrollIntoView({ block:'nearest' });
+}
+
 function renderTrainTab(zone, tires){
   const groups = buildTrainGroups(tires);
   if(groups.length===0){
@@ -948,11 +1049,6 @@ function renderTrainTab(zone, tires){
   if(!state.trainKey || !groups.find(g=>g.key===state.trainKey)){
     state.trainKey = groups[0].key;
   }
-  const list = groups.map(g=>`
-    <button class="train-item ${g.key===state.trainKey?'active':''}" data-key="${g.key}">
-      ${escapeHtml(g.location)}${g.sessionType?` · ${escapeHtml(g.sessionType)}`:''}
-    </button>`).join('');
-
   const active = groups.find(g=>g.key===state.trainKey);
   const slotHtml = (posId)=>{
     const info = posInfo(posId);
@@ -976,8 +1072,15 @@ function renderTrainTab(zone, tires){
   };
 
   const filled = ['AVG','AVD','ARG','ARD'].filter(p=>active.slots[p]).length;
+  const filledCount = ['AVG','AVD','ARG','ARD'].filter(p=>active.slots[p]).length;
   zone.innerHTML = `
-    <div class="train-list">${list}</div>
+    <button class="train-select" id="train-select">
+      <div class="ts-main">
+        <div class="ts-loc">${escapeHtml(active.location)}${active.sessionType?' · '+escapeHtml(active.sessionType):''}</div>
+        <div class="ts-sub">${active.date?z(fmtDateShort(active.date)):'—'} · ${z(filledCount)}/${z(4)} positions · ${z(groups.length)} sessions enregistrées</div>
+      </div>
+      <span class="ts-chev">▼</span>
+    </button>
     <div class="car-view">
       ${slotHtml('AVG')}${slotHtml('AVD')}
       ${slotHtml('ARG')}${slotHtml('ARD')}
@@ -986,9 +1089,7 @@ function renderTrainTab(zone, tires){
       ${escapeHtml(active.location)}${active.sessionType?' · '+escapeHtml(active.sessionType):''}${active.date?' · '+z(fmtDateShort(active.date)):''}
     </div>
   `;
-  zone.querySelectorAll('.train-item').forEach(b=>{
-    b.onclick = () => go('home', { homeTab:'train', trainKey: b.dataset.key });
-  });
+  document.getElementById('train-select').onclick = () => showTrainPicker(groups);
   zone.querySelectorAll('.car-slot[data-tirekey]').forEach(el=>{
     el.onclick = () => go('detail', {tireKey: el.dataset.tirekey});
   });
