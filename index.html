@@ -498,7 +498,7 @@ const POSITIONS = [
   {id:'ARG', label:'AR. GAUCHE', color:'#4C9AFF'},
 ];
 const SESSION_TYPES = ['EL1','EL2','Q','C1','C2','C3','C4'];
-const APP_VERSION = 'v19';
+const APP_VERSION = 'v20';
 
 // ---------- Championnat de France de la Montagne 2026 ----------
 // km = longueur d'UNE montée. Sert à pré-remplir la distance du roulage.
@@ -1898,6 +1898,11 @@ async function renderForm(v){
     // distance pré-remplie, mais toujours modifiable à la main
     if(c) kmField.value = c.km.toFixed(2);
   };
+
+  // Lieu déjà sélectionné à l'ouverture (venant de la feuille Compétition) :
+  // aucun événement 'change' n'est émis, on remplit donc la distance ici.
+  const locInit = findCourse(locSelect.value);
+  if(locInit && !kmField.value) kmField.value = locInit.km.toFixed(2);
 
   const tagPos = document.getElementById('tag-pos');
   v.querySelectorAll('#f-types .chip').forEach(c=>{
