@@ -340,6 +340,15 @@
     -webkit-appearance:none;appearance:none;
   }
   input:focus,textarea:focus,select:focus{outline:none;border-color:var(--yel);}
+  select{
+    padding-right:32px;
+    background-image:linear-gradient(45deg,transparent 50%,var(--yel) 50%),
+                     linear-gradient(135deg,var(--yel) 50%,transparent 50%);
+    background-position:calc(100% - 16px) 50%,calc(100% - 11px) 50%;
+    background-size:5px 5px,5px 5px;
+    background-repeat:no-repeat;
+  }
+  select option,select optgroup{background:var(--card);color:var(--off);}
   input::placeholder,textarea::placeholder{color:#4E4B44;}
   textarea{
     min-height:62px;resize:vertical;
@@ -489,7 +498,51 @@ const POSITIONS = [
   {id:'ARG', label:'AR. GAUCHE', color:'#4C9AFF'},
 ];
 const SESSION_TYPES = ['EL1','EL2','Q','C1','C2','C3','C4'];
-const APP_VERSION = 'v17';
+const APP_VERSION = 'v18';
+
+// ---------- Championnat de France de la Montagne 2026 ----------
+// km = longueur d'UNE montée. Sert à pré-remplir la distance du roulage.
+const COURSES_CFM = [
+  // 1ère division
+  {nom:'Bagnols-Sabran',                  dept:'30', div:1, km:3.10},
+  {nom:'St-Jean-du-Gard – Col St-Pierre', dept:'30', div:1, km:5.08},
+  {nom:'Abreschviller – St-Quirin',       dept:'57', div:1, km:2.10},
+  {nom:"Teurses d'Hébécrevon-Agneaux",    dept:'50', div:1, km:2.10},
+  {nom:'La Pommeraye',                    dept:'49', div:1, km:2.30},
+  {nom:'Saint-Gouëno',                    dept:'22', div:1, km:3.20},
+  {nom:'Marchampt en Beaujolais',         dept:'69', div:1, km:3.90},
+  {nom:'Vuillafans – Échevannes',         dept:'25', div:1, km:4.80},
+  {nom:'Dunières Auvergne',               dept:'43', div:1, km:2.28},
+  {nom:'Mont-Dore – Chambon-sur-Lac',     dept:'63', div:1, km:5.08},
+  {nom:'Turckheim – 3 Épis',              dept:'68', div:1, km:5.95},
+  {nom:'Limonest – Mont Verdun',          dept:'69', div:1, km:2.55},
+  // 2ème division
+  {nom:'Lodève',                          dept:'34', div:2, km:4.40},
+  {nom:'Quillan – Col du Portel',         dept:'11', div:2, km:4.92},
+  {nom:'Arinsal (Andorre)',               dept:'AD', div:2, km:4.00},
+  {nom:'La Broque',                       dept:'67', div:2, km:2.45},
+  {nom:'Chamrousse',                      dept:'38', div:2, km:4.80},
+];
+
+const findCourse = (nom) => COURSES_CFM.find(c => c.nom === nom) || null;
+
+// Construit les <option> du menu Lieu. `courant` = lieu déjà enregistré.
+function courseOptions(courant){
+  const match = findCourse(courant);
+  let html = `<option value="">— Choisir un lieu —</option>`;
+  [[1,'Championnat de France — 1ère division'],[2,'Championnat de France — 2ème division']]
+    .forEach(([div,label])=>{
+      html += `<optgroup label="${label}">`;
+      COURSES_CFM.filter(c=>c.div===div).forEach(c=>{
+        const sel = match && match.nom===c.nom ? ' selected' : '';
+        html += `<option value="${escapeHtml(c.nom)}"${sel}>${escapeHtml(c.nom)} (${c.dept}) · ${c.km.toFixed(2)} km</option>`;
+      });
+      html += `</optgroup>`;
+    });
+  const selAutre = (!match && courant) ? ' selected' : '';
+  html += `<option value="__autre__"${selAutre}>Autre lieu (saisie libre)…</option>`;
+  return html;
+}
 
 let state = { view: 'home', tireKey: null, filterPos: null, homeTab: 'pneus', showHS: false, trainKey: null };
 
@@ -1554,7 +1607,8 @@ function showPositionPicker(tire){
     <input type="text" id="pp-session-custom" placeholder="Nom de la session" style="display:none;margin-top:6px;">
 
     <label>Compétition / lieu</label>
-    <input type="text" id="pp-competition" placeholder="Ex. Course de côte de Chabrières">
+    <select id="pp-comp-select">${courseOptions('')}</select>
+    <input type="text" id="pp-competition" placeholder="Ex. Course de côte de Chabrières" style="margin-top:6px;">
 
     <div class="form-actions">
       <button class="btn btn-ghost" id="pp-skip">Passer</button>
@@ -1582,11 +1636,21 @@ function showPositionPicker(tire){
     };
   });
 
+  const compSelect = document.getElementById('pp-comp-select');
+  const compFree   = document.getElementById('pp-competition');
+  compSelect.onchange = () => {
+    const val = compSelect.value;
+    const isFree = (val === '__autre__' || val === '');
+    compFree.style.display = isFree ? '' : 'none';
+    compFree.value = '';
+    if(val === '__autre__') compFree.focus();
+  };
+
   document.getElementById('pp-skip').onclick = () => go('detail', { tireKey: tire.key });
   document.getElementById('pp-continue').onclick = async () => {
     if(selectedPosition){ tire.position = selectedPosition; await saveTire(tire.key, tire); }
     const finalSession = selectedSession==='AUTRE' ? customInput.value.trim() : selectedSession;
-    const competition = document.getElementById('pp-competition').value.trim();
+    const competition = findCourse(compSelect.value) ? compSelect.value : compFree.value.trim();
     go('form', { tireKey: tire.key, prefillSession: finalSession || null, prefillLocation: competition || null });
   };
 }
@@ -1771,7 +1835,10 @@ async function renderForm(v){
       </div>
 
       <label>Lieu / compétition</label>
-      <input type="text" id="f-loc" placeholder="Ex. Chabrières, La Châtre…" value="${escapeHtml(prefillLocation)}">
+      <select id="f-loc-select">${courseOptions(prefillLocation)}</select>
+      <input type="text" id="f-loc" placeholder="Ex. Chabrières, La Châtre…"
+             value="${escapeHtml(prefillLocation)}"
+             style="margin-top:6px;${findCourse(prefillLocation) ? 'display:none;' : ''}">
 
       <label>Type de session</label>
       <div class="chips" id="f-types">
@@ -1798,7 +1865,7 @@ async function renderForm(v){
       </div>
 
       <label>Distance</label>
-      <div class="unit"><input type="number" step="0.1" id="f-km" inputmode="decimal" placeholder="0" value="${source && source.km ? source.km : ''}"><span>km</span></div>
+      <div class="unit"><input type="number" step="0.01" id="f-km" inputmode="decimal" placeholder="0" value="${source && source.km ? source.km : ''}"><span>km</span></div>
 
       <label>Réglages</label>
       <textarea id="f-setup" placeholder="Carrossage, parallélisme, barre, amortisseurs…">${source ? escapeHtml(source.setup||'') : ''}</textarea>
@@ -1812,6 +1879,25 @@ async function renderForm(v){
       </div>
     </main>
   `;
+
+  // --- Menu Lieu : liste CFM ou saisie libre ---
+  const locSelect = document.getElementById('f-loc-select');
+  const locFree   = document.getElementById('f-loc');
+  const kmField   = document.getElementById('f-km');
+  locSelect.onchange = () => {
+    const val = locSelect.value;
+    if(val === '__autre__' || val === ''){
+      locFree.style.display = '';
+      locFree.value = '';
+      if(val === '__autre__') locFree.focus();
+      return;
+    }
+    const c = findCourse(val);
+    locFree.style.display = 'none';
+    locFree.value = '';
+    // distance pré-remplie, mais toujours modifiable à la main
+    if(c) kmField.value = c.km.toFixed(2);
+  };
 
   const tagPos = document.getElementById('tag-pos');
   v.querySelectorAll('#f-types .chip').forEach(c=>{
@@ -1837,7 +1923,7 @@ async function renderForm(v){
     const session = {
       id: editingSession ? editingSession.id : Date.now(),
       date: document.getElementById('f-date').value || todayStr(),
-      location: document.getElementById('f-loc').value.trim(),
+      location: (findCourse(locSelect.value) ? locSelect.value : locFree.value.trim()),
       sessionType: selType || '',
       position: selPos || null,
       laps: document.getElementById('f-laps').value,
